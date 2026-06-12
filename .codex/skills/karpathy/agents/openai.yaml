@@ -1,0 +1,3 @@
+display_name: Karpathy 编码风格
+short_description: 简洁、从零实现、极少抽象、代码即教学——Karpathy 风格编码指南
+default_prompt: 请遵循 Karpathy 编码风格编写代码：简洁、扁平、显式、教学友好。优先手写小工具函数而非引入依赖，用 early return 减少嵌套，注释解释 why 而非 what。
