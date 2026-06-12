@@ -28,3 +28,5 @@ dist-ssr
 !.env.example
 *.old
 *.bak
+*_old
+*_bak

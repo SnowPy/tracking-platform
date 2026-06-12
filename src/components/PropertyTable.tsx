@@ -18,7 +18,7 @@ export interface PropertyItem {
   sort_order?: number
 }
 
-interface PropertyCreateValues {
+export interface PropertyCreateValues {
   name: string
   display_name?: string
   type: string

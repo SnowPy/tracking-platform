@@ -35,8 +35,14 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await signUp(values.email, values.password)
-      message.success('注册成功！请检查邮箱确认链接（如已关闭确认，可直接登录）')
-      setActiveTab('login')
+      const session = useAuthStore.getState().session
+      if (session) {
+        message.success('注册成功，自动登录')
+        navigate('/')
+      } else {
+        message.success('注册成功！请检查邮箱确认链接（如已关闭确认，可直接登录）')
+        setActiveTab('login')
+      }
     } catch (err: any) {
       message.error(err.message || '注册失败')
     } finally {

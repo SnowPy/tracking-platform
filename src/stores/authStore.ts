@@ -43,8 +43,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   signUp: async (email, password) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+    const { data, error } = await supabase.auth.signUp({ email, password })
     if (error) throw error
+    // auto-login when email confirmation is disabled
+    if (data.session) {
+      set({ session: data.session, user: data.user })
+      if (data.user) {
+        await get().fetchProfile(data.user.id)
+      }
+    }
   },
 
   signOut: async () => {

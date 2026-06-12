@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ConfigProvider, App as AntApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import { useEffect } from 'react'
+import ErrorBoundary from './components/ErrorBoundary'
 import { useAuthStore } from './stores/authStore'
 import AuthGuard from './components/AuthGuard'
 import MainLayout from './components/MainLayout'
@@ -28,6 +29,7 @@ export default function App() {
     <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#1677ff' } }}>
       <AntApp>
         <BrowserRouter>
+          <ErrorBoundary>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route element={<AuthGuard />}>
@@ -45,6 +47,7 @@ export default function App() {
               </Route>
             </Route>
           </Routes>
+          </ErrorBoundary>
         </BrowserRouter>
       </AntApp>
     </ConfigProvider>
