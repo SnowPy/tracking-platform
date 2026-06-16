@@ -11,7 +11,7 @@ async function getProperties(table: PropertyTable) {
   return data
 }
 
-async function createProperty(table: PropertyTable, data: { name: string; display_name?: string; type: string; description?: string; example_value?: string }) {
+async function createProperty(table: PropertyTable, data: { name: string; display_name?: string; type: string; description?: string; example_value?: string; platforms?: string[]; notes?: string }) {
   const { data: result, error } = await supabase
     .from(table)
     .insert(data)
@@ -21,7 +21,7 @@ async function createProperty(table: PropertyTable, data: { name: string; displa
   return result
 }
 
-async function updateProperty(table: PropertyTable, id: string, data: { name?: string; display_name?: string; type?: string; description?: string; example_value?: string; sort_order?: number }) {
+async function updateProperty(table: PropertyTable, id: string, data: { name?: string; display_name?: string; type?: string; description?: string; example_value?: string; platforms?: string[]; notes?: string; sort_order?: number }) {
   const { data: result, error } = await supabase
     .from(table)
     .update({ ...data, updated_at: new Date().toISOString() })

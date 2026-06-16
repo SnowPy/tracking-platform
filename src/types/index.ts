@@ -28,6 +28,9 @@ export interface TrackingEvent {
   status: EventStatus
   version: number
   changelog: string | null
+  platforms: Platform[]
+  trigger_timing: string | null
+  notes: string | null
   created_by: string | null
   updated_by: string | null
   created_at: string
@@ -79,6 +82,8 @@ export interface UserProperty {
   type: PropertyType
   description: string | null
   example_value: string | null
+  platforms: Platform[]
+  notes: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -91,6 +96,8 @@ export interface CommonProperty {
   type: PropertyType
   description: string | null
   example_value: string | null
+  platforms: Platform[]
+  notes: string | null
   sort_order: number
   created_at: string
   updated_at: string
@@ -98,14 +105,24 @@ export interface CommonProperty {
 
 export type RequirementStatus = 'pending' | 'in_progress' | 'done' | 'rejected'
 export type RequirementPriority = 'low' | 'medium' | 'high'
+export type TrackingType = 'event' | 'common_property' | 'user_property'
+export type RequirementType = 'new' | 'modify'
+
+export const TRACKING_TYPE_OPTIONS: { value: TrackingType; label: string }[] = [
+  { value: 'event', label: '事件' },
+  { value: 'common_property', label: '公共属性' },
+  { value: 'user_property', label: '用户属性' },
+]
 
 export interface Requirement {
   id: string
   title: string
+  display_name: string | null
+  tracking_type: TrackingType
   description: string | null
   event_name: string | null
   event_id: string | null  // 关联已有事件
-  modification_type: 'new' | 'modify'  // 新增事件还是修改已有事件
+  modification_type: RequirementType  // 新增还是修改
   proposed_properties: ProposedProperty[]
   version: string | null               // 版本号
   platforms: Platform[]                // 目标平台

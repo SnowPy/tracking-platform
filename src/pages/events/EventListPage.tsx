@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Input, Select, Space, Popconfirm, message } from 'antd'
+import { Card, Table, Button, Input, Select, Space, Popconfirm, Tag, message } from 'antd'
 import { PlusOutlined, SearchOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { getEvents, createEvent, updateEvent, deleteEvent } from '../../api/events'
 import { getCategories } from '../../api/categories'
 import StatusBadge from '../../components/StatusBadge'
-import type { TrackingEvent, Category, EventStatus } from '../../types'
+import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
+import { PLATFORM_OPTIONS } from '../../types'
 import EventFormModal from './EventFormModal'
 
 export default function EventListPage() {
@@ -54,6 +55,9 @@ export default function EventListPage() {
     category_id?: string | null
     description?: string
     status: EventStatus
+    platforms?: Platform[]
+    trigger_timing?: string
+    notes?: string
   }) => {
     if (editingRecord) {
       await updateEvent(editingRecord.id, values)
@@ -90,6 +94,14 @@ export default function EventListPage() {
       render: (status: EventStatus) => <StatusBadge status={status} type="event" />,
     },
     { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+    {
+      title: '平台', key: 'platforms', width: 130,
+      render: (_: unknown, r: TrackingEvent) => (r.platforms || []).map((p: string) => {
+        const opt = PLATFORM_OPTIONS.find(o => o.value === p)
+        return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
+      }),
+    },
+    { title: '触发时机', dataIndex: 'trigger_timing', key: 'trigger_timing', width: 120, ellipsis: true, render: (v: string) => v || '-' },
     {
       title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180,
       render: (val: string) => val ? new Date(val).toLocaleString('zh-CN') : '-',

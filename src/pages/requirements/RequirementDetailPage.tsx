@@ -40,13 +40,15 @@ export default function RequirementDetailPage() {
     if (!req) return
     try {
       if (status === 'done') {
-        // 确认并同步
+        const trackingType = (req as any).tracking_type || 'event'
+        const typeLabel = trackingType === 'event' ? '事件' : trackingType === 'common_property' ? '公共属性' : '用户属性'
+
         const confirmed = await new Promise<boolean>((res) => {
           Modal.confirm({
             title: '确认完成并同步',
             content: req.modification_type === 'new'
-              ? `将自动创建事件「${req.event_name}」并同步属性，确认？`
-              : '将自动更新事件属性，确认？',
+              ? `将自动创建${typeLabel}「${req.event_name || req.display_name}」并同步，确认？`
+              : `将自动更新${typeLabel}，确认？`,
             onOk: () => res(true), onCancel: () => res(false),
           })
         })
@@ -55,40 +57,74 @@ export default function RequirementDetailPage() {
         await updateRequirement(req.id, { status })
 
         // 同步逻辑
-        if (req.modification_type === 'new') {
-          const { data: newEvent } = await supabase.from('events').insert({
-            name: req.event_name!, display_name: req.title,
-            description: req.description, status: 'active',
-          }).select().single()
-          if (newEvent && req.proposed_properties?.length) {
-            await supabase.from('event_properties').insert(
-              req.proposed_properties.filter(p => !p.action || p.action === 'add').map(p => ({
-                event_id: newEvent.id, name: p.name,
-                display_name: p.display_name || p.name,
+        if (trackingType === 'event') {
+          if (req.modification_type === 'new') {
+            const { data: newEvent } = await supabase.from('events').insert({
+              name: req.event_name!, display_name: req.display_name || req.title,
+              description: req.description, status: 'active',
+              platforms: req.platforms || [],
+              trigger_timing: req.trigger_timing || null,
+            }).select().single()
+            if (newEvent && req.proposed_properties?.length) {
+              await supabase.from('event_properties').insert(
+                req.proposed_properties.filter(p => !p.action || p.action === 'add').map(p => ({
+                  event_id: newEvent.id, name: p.name,
+                  display_name: p.display_name || p.name,
+                  type: p.type, description: p.description, required: p.required,
+                }))
+              )
+            }
+            message.success('事件已创建')
+          } else if (req.modification_type === 'modify' && req.event_id) {
+            for (const p of req.proposed_properties || []) {
+              if (p.action === 'delete' && p.existing_id) await deleteEventProperty(p.existing_id)
+              else if (p.action === 'modify' && p.existing_id) await updateEventProperty(p.existing_id, {
+                name: p.name, display_name: p.display_name, type: p.type, description: p.description, required: p.required,
+              })
+              else await createEventProperty({
+                event_id: req.event_id, name: p.name, display_name: p.display_name || p.name,
                 type: p.type, description: p.description, required: p.required,
-              }))
-            )
+              })
+            }
+            message.success('事件属性已更新')
           }
-          message.success('事件已创建')
-        } else if (req.modification_type === 'modify' && req.event_id) {
-          for (const p of req.proposed_properties || []) {
-            if (p.action === 'delete' && p.existing_id) await deleteEventProperty(p.existing_id)
-            else if (p.action === 'modify' && p.existing_id) await updateEventProperty(p.existing_id, {
-              name: p.name, display_name: p.display_name, type: p.type, description: p.description, required: p.required,
+        } else {
+          // 公共属性 / 用户属性同步
+          const tableName = trackingType === 'common_property' ? 'common_properties' : 'user_properties'
+          if (req.modification_type === 'new') {
+            await supabase.from(tableName).insert({
+              name: req.event_name!,
+              display_name: req.display_name || req.title,
+              type: 'string',
+              description: req.description,
+              platforms: req.platforms || [],
             })
-            else await createEventProperty({
-              event_id: req.event_id, name: p.name, display_name: p.display_name || p.name,
-              type: p.type, description: p.description, required: p.required,
-            })
+            message.success(`${trackingType === 'common_property' ? '公共属性' : '用户属性'}已创建`)
+          } else if (req.modification_type === 'modify' && req.event_id) {
+            await supabase.from(tableName).update({
+              name: req.event_name,
+              display_name: req.display_name || req.title,
+              description: req.description,
+              platforms: req.platforms || [],
+              updated_at: new Date().toISOString(),
+            }).eq('id', req.event_id)
+            message.success(`${trackingType === 'common_property' ? '公共属性' : '用户属性'}已更新`)
           }
-          message.success('事件属性已更新')
         }
       } else {
         await updateRequirement(req.id, { status })
         message.success('状态已更新')
       }
       await load()
-    } catch (e: any) { message.error(e.message) }
+    } catch (e: any) {
+      if (e?.code === '23505') {
+        message.error(`「${req.event_name || req.display_name || req.title}」已存在，请勿重复同步`)
+      } else {
+        message.error(e.message)
+      }
+      setSyncing(false)
+      return
+    }
     finally { setSyncing(false) }
   }
 
@@ -139,8 +175,17 @@ export default function RequirementDetailPage() {
                   <Title level={4} style={{ margin: 0 }}>{req.title}</Title>
                   <StatusBadge status={req.status} type="requirement" />
                   <Tag color={req.modification_type === 'new' ? 'blue' : 'green'}>
-                    {req.modification_type === 'new' ? '新增事件' : '修改事件'}
+                    {req.modification_type === 'new' ? '新增' : '修改'}
                   </Tag>
+                  {req.tracking_type && (
+                    <Tag color={
+                      req.tracking_type === 'event' ? 'purple' :
+                      req.tracking_type === 'common_property' ? 'cyan' : 'geekblue'
+                    }>
+                      {req.tracking_type === 'event' ? '事件' :
+                       req.tracking_type === 'common_property' ? '公共属性' : '用户属性'}
+                    </Tag>
+                  )}
                 </Space>
               </div>
               <Space>
@@ -162,9 +207,14 @@ export default function RequirementDetailPage() {
             <Descriptions column={2} size="small" style={{ marginTop: 16 }} bordered>
               <Descriptions.Item label="需求类型">
                 <Tag color={req.modification_type === 'new' ? 'blue' : 'green'}>
-                  {req.modification_type === 'new' ? '新增事件' : '修改已有事件'}
+                  {req.modification_type === 'new' ? '新增' : '修改'}
                 </Tag>
               </Descriptions.Item>
+              <Descriptions.Item label="埋点类型">
+                {req.tracking_type === 'event' ? '事件' :
+                 req.tracking_type === 'common_property' ? '公共属性' : '用户属性'}
+              </Descriptions.Item>
+              <Descriptions.Item label="显示名">{req.display_name || '-'}</Descriptions.Item>
               <Descriptions.Item label="优先级">
                 <Tag color={req.priority === 'high' ? 'red' : req.priority === 'medium' ? 'orange' : 'default'}>
                   {req.priority === 'high' ? '高' : req.priority === 'medium' ? '中' : '低'}
@@ -172,7 +222,7 @@ export default function RequirementDetailPage() {
               </Descriptions.Item>
               <Descriptions.Item label="版本号">{req.version || '-'}</Descriptions.Item>
               <Descriptions.Item label="目标平台">{platformTags.length > 0 ? <Space>{platformTags}</Space> : '-'}</Descriptions.Item>
-              <Descriptions.Item label="事件名">
+              <Descriptions.Item label={req.tracking_type === 'event' ? '事件名' : '属性名'}>
                 {req.event_name ? <code>{req.event_name}</code> : (req.events ? <code>{req.events.name}</code> : '-')}
               </Descriptions.Item>
               <Descriptions.Item label="触发时机">{req.trigger_timing || '-'}</Descriptions.Item>

@@ -100,93 +100,162 @@ export default function RequirementPage() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  // 需求完成时自动同步到事件
-  const syncRequirementToEvent = async (req: Requirement) => {
+  // 需求完成时自动同步
+  const syncRequirement = async (req: Requirement) => {
     try {
-      if (req.modification_type === 'new') {
-        // 新建事件
-        const { data: newEvent, error: createErr } = await supabase
-          .from('events')
-          .insert({
-            name: req.event_name!,
-            display_name: req.title,
-            description: req.description,
-            status: 'active',
-          })
-          .select()
-          .single()
-        if (createErr) throw createErr
+      const trackingType = (req as any).tracking_type || 'event'
 
-        // 为事件添加属性
-        if (req.proposed_properties && req.proposed_properties.length > 0) {
-          await supabase.from('event_properties').insert(
-            req.proposed_properties.map((p: ProposedProperty) => ({
-              event_id: newEvent.id,
-              name: p.name,
-              display_name: p.display_name || p.name,
-              type: p.type,
-              description: p.description,
-              required: p.required,
-            }))
-          )
-        }
-        message.success(`事件「${newEvent.name}」已创建，属性已同步`)
-      } else if (req.modification_type === 'modify' && req.event_id) {
-        // 更新已有事件
-        const { error: updateErr } = await supabase
-          .from('events')
-          .update({ updated_at: new Date().toISOString() })
-          .eq('id', req.event_id)
-        if (updateErr) throw updateErr
+      if (trackingType === 'event') {
+        // === 事件同步逻辑 ===
+        if (req.modification_type === 'new') {
+          const { data: newEvent, error: createErr } = await supabase
+            .from('events')
+            .insert({
+              name: req.event_name!,
+              display_name: req.display_name || req.title,
+              description: req.description,
+              status: 'active',
+              platforms: req.platforms || [],
+              trigger_timing: req.trigger_timing || null,
+            })
+            .select()
+            .single()
+          if (createErr) throw createErr
 
-        // 处理属性：删除 → 修改 → 新增
-        let deletedCount = 0, modifiedCount = 0, addedCount = 0
-        if (req.proposed_properties && req.proposed_properties.length > 0) {
-          for (const p of req.proposed_properties) {
-            if (p.action === 'delete' && p.existing_id) {
-              await deleteEventProperty(p.existing_id)
-              deletedCount++
-            } else if (p.action === 'modify' && p.existing_id) {
-              await updateEventProperty(p.existing_id, {
-                name: p.name,
-                display_name: p.display_name,
-                type: p.type,
-                description: p.description,
-                required: p.required,
-              })
-              modifiedCount++
-            } else if (p.action === 'add' || !p.action) {
-              await createEventProperty({
-                event_id: req.event_id,
+          if (req.proposed_properties && req.proposed_properties.length > 0) {
+            await supabase.from('event_properties').insert(
+              req.proposed_properties.map((p: ProposedProperty) => ({
+                event_id: newEvent.id,
                 name: p.name,
                 display_name: p.display_name || p.name,
                 type: p.type,
                 description: p.description,
                 required: p.required,
-              })
-              addedCount++
+              }))
+            )
+          }
+          message.success(`事件「${newEvent.name}」已创建，属性已同步`)
+        } else if (req.modification_type === 'modify' && req.event_id) {
+          const { error: updateErr } = await supabase
+            .from('events')
+            .update({
+              updated_at: new Date().toISOString(),
+              platforms: req.platforms || [],
+              trigger_timing: req.trigger_timing || null,
+            })
+            .eq('id', req.event_id)
+          if (updateErr) throw updateErr
+
+          let deletedCount = 0, modifiedCount = 0, addedCount = 0
+          if (req.proposed_properties && req.proposed_properties.length > 0) {
+            for (const p of req.proposed_properties) {
+              if (p.action === 'delete' && p.existing_id) {
+                await deleteEventProperty(p.existing_id)
+                deletedCount++
+              } else if (p.action === 'modify' && p.existing_id) {
+                await updateEventProperty(p.existing_id, {
+                  name: p.name, display_name: p.display_name,
+                  type: p.type, description: p.description, required: p.required,
+                })
+                modifiedCount++
+              } else if (p.action === 'add' || !p.action) {
+                await createEventProperty({
+                  event_id: req.event_id, name: p.name,
+                  display_name: p.display_name || p.name,
+                  type: p.type, description: p.description, required: p.required,
+                })
+                addedCount++
+              }
             }
           }
+          const event = await getEventById(req.event_id)
+          const parts = []
+          if (addedCount > 0) parts.push(`新增 ${addedCount} 个`)
+          if (modifiedCount > 0) parts.push(`修改 ${modifiedCount} 个`)
+          if (deletedCount > 0) parts.push(`删除 ${deletedCount} 个`)
+          message.success(`事件「${event.name}」已更新${parts.length > 0 ? '：' + parts.join('，') : ''}`)
         }
-        const event = await getEventById(req.event_id)
-        const parts = []
-        if (addedCount > 0) parts.push(`新增 ${addedCount} 个`)
-        if (modifiedCount > 0) parts.push(`修改 ${modifiedCount} 个`)
-        if (deletedCount > 0) parts.push(`删除 ${deletedCount} 个`)
-        message.success(`事件「${event.name}」已更新${parts.length > 0 ? '：' + parts.join('，') : ''}`)
+      } else if (trackingType === 'common_property') {
+        // === 公共属性同步逻辑 ===
+        const tableName = 'common_properties'
+        if (req.modification_type === 'new') {
+          const { data: newProp, error: createErr } = await supabase
+            .from(tableName)
+            .insert({
+              name: req.event_name!,
+              display_name: req.display_name || req.title,
+              type: (req as any).property_type || 'string',
+              description: req.description,
+              platforms: req.platforms || [],
+            })
+            .select()
+            .single()
+          if (createErr) throw createErr
+          message.success(`公共属性「${(newProp as any).name}」已创建`)
+        } else if (req.modification_type === 'modify' && req.event_id) {
+          const { error: updateErr } = await supabase
+            .from(tableName)
+            .update({
+              name: req.event_name,
+              display_name: req.display_name || req.title,
+              description: req.description,
+              platforms: req.platforms || [],
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', req.event_id)
+          if (updateErr) throw updateErr
+          message.success('公共属性已更新')
+        }
+      } else if (trackingType === 'user_property') {
+        // === 用户属性同步逻辑 ===
+        const tableName = 'user_properties'
+        if (req.modification_type === 'new') {
+          const { data: newProp, error: createErr } = await supabase
+            .from(tableName)
+            .insert({
+              name: req.event_name!,
+              display_name: req.display_name || req.title,
+              type: (req as any).property_type || 'string',
+              description: req.description,
+              platforms: req.platforms || [],
+            })
+            .select()
+            .single()
+          if (createErr) throw createErr
+          message.success(`用户属性「${(newProp as any).name}」已创建`)
+        } else if (req.modification_type === 'modify' && req.event_id) {
+          const { error: updateErr } = await supabase
+            .from(tableName)
+            .update({
+              name: req.event_name,
+              display_name: req.display_name || req.title,
+              description: req.description,
+              platforms: req.platforms || [],
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', req.event_id)
+          if (updateErr) throw updateErr
+          message.success('用户属性已更新')
+        }
       }
     } catch (err: any) {
-      message.error(`同步失败: ${err.message}`)
-      throw err
+      if (err?.code === '23505') {
+        message.error(`「${req.event_name || req.display_name || req.title}」已存在，请勿重复同步`)
+      } else {
+        message.error(`同步失败: ${err.message}`)
+      }
+      return
     }
   }
 
   const handleSubmit = async (values: {
     title: string
+    display_name?: string
+    tracking_type?: string
     description?: string
     event_name?: string
     event_id?: string | null
-    modification_type: 'new' | 'modify'
+    modification_type: string
     proposed_properties: ProposedProperty[]
     priority: string
     version?: string | null
@@ -243,7 +312,7 @@ export default function RequirementPage() {
         // 如果变为 done，自动同步
         if (targetStatus === 'done') {
           const updatedItem = { ...item, status: 'done' as RequirementStatus }
-          await syncRequirementToEvent(updatedItem)
+          await syncRequirement(updatedItem)
         } else {
           message.success(`状态已更新为「${STATUS_LABELS[targetStatus]}」`)
         }
@@ -274,7 +343,7 @@ export default function RequirementPage() {
     try {
       await updateRequirement(req.id, { status: 'done' })
       const updatedItem = { ...req, status: 'done' as RequirementStatus }
-      await syncRequirementToEvent(updatedItem)
+      await syncRequirement(updatedItem)
       await loadData()
     } catch (err: any) {
       message.error(err.message)
@@ -303,10 +372,23 @@ export default function RequirementPage() {
       render: (v: string, r: Requirement) => <a onClick={() => navigate(`/requirements/${r.id}`)}>{v}</a>,
     },
     {
-      title: '类型', dataIndex: 'modification_type', key: 'modification_type', width: 70,
+      title: '需求类型', dataIndex: 'modification_type', key: 'modification_type', width: 70,
       render: (v: string) => v === 'new' ? <Tag color="blue">新增</Tag> : <Tag color="green">修改</Tag>,
     },
-    { title: '事件', dataIndex: 'event_name', key: 'event_name', width: 140, render: (v: string) => v || '-' },
+    {
+      title: '埋点类型', dataIndex: 'tracking_type', key: 'tracking_type', width: 80,
+      render: (v: string) => {
+        const labels: Record<string, { color: string; label: string }> = {
+          event: { color: 'purple', label: '事件' },
+          common_property: { color: 'cyan', label: '公共属性' },
+          user_property: { color: 'geekblue', label: '用户属性' },
+        }
+        const opt = labels[v] || { color: 'default', label: v || '事件' }
+        return <Tag color={opt.color}>{opt.label}</Tag>
+      },
+    },
+    { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 110, render: (v: string) => v || '-' },
+    { title: '事件/属性', dataIndex: 'event_name', key: 'event_name', width: 140, render: (v: string) => v || '-' },
     { title: '版本', dataIndex: 'version', key: 'version', width: 80, render: (v: string) => v || '-' },
     {
       title: '平台', key: 'platforms', width: 120,
@@ -463,6 +545,8 @@ export default function RequirementPage() {
         open={modalOpen}
         editingValues={editingRecord ? {
           title: editingRecord.title,
+          display_name: editingRecord.display_name || '',
+          tracking_type: editingRecord.tracking_type || 'event',
           description: editingRecord.description || '',
           event_name: editingRecord.event_name || '',
           event_id: editingRecord.event_id,
@@ -474,7 +558,7 @@ export default function RequirementPage() {
           trigger_timing: editingRecord.trigger_timing,
         } : null}
         onSubmit={handleSubmit}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { setModalOpen(false); setEditingRecord(null) }}
       />
     </div>
   )

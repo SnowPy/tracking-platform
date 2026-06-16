@@ -5,20 +5,33 @@ import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
 import { supabase } from '../../supabase/client'
-import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform } from '../../types'
-import { PLATFORM_OPTIONS } from '../../types'
+import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType } from '../../types'
+import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
 
 const { TextArea } = Input
+
+const TRACKING_TYPE_LABEL: Record<TrackingType, string> = {
+  event: '事件',
+  common_property: '公共属性',
+  user_property: '用户属性',
+}
+
+const REQUIREMENT_TYPE_LABEL: Record<RequirementType, string> = {
+  new: '新增',
+  modify: '修改',
+}
 
 interface RequirementFormModalProps {
   open: boolean
   editingValues?: {
     title?: string
+    display_name?: string
+    tracking_type?: string
     description?: string
     event_name?: string
     event_id?: string | null
-    modification_type?: 'new' | 'modify'
+    modification_type?: string
     proposed_properties?: ProposedProperty[]
     priority?: string
     version?: string | null
@@ -27,10 +40,12 @@ interface RequirementFormModalProps {
   } | null
   onSubmit: (values: {
     title: string
+    display_name?: string
+    tracking_type?: string
     description?: string
     event_name?: string
     event_id?: string | null
-    modification_type: 'new' | 'modify'
+    modification_type: string
     proposed_properties: ProposedProperty[]
     priority: string
     version?: string | null
@@ -43,20 +58,30 @@ interface RequirementFormModalProps {
 export default function RequirementFormModal({ open, editingValues, onSubmit, onCancel }: RequirementFormModalProps) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
-  const [modType, setModType] = useState<'new' | 'modify'>('new')
+  const [trackingType, setTrackingType] = useState<TrackingType>('event')
+  const [reqType, setReqType] = useState<RequirementType>('new')
   const [existingEvents, setExistingEvents] = useState<TrackingEvent[]>([])
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null)
   const [existingProperties, setExistingProperties] = useState<EventProperty[]>([])
-  const [propActions, setPropActions] = useState<Record<string, PropertyAction>>({})       // existing_id → action
-  const [propModifications, setPropModifications] = useState<Record<string, Partial<EventProperty>>>({}) // existing_id → new values
+  const [propActions, setPropActions] = useState<Record<string, PropertyAction>>({})
+  const [propModifications, setPropModifications] = useState<Record<string, Partial<EventProperty>>>({})
   const [newProperties, setNewProperties] = useState<ProposedProperty[]>([])
   const [checkingName, setCheckingName] = useState(false)
   const [existingVersions, setExistingVersions] = useState<string[]>([])
+  const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
   const typeOptions = usePropertyTypeOptions()
+
+  // 标题自动生成
+  const autoTitle = useCallback((displayName: string) => {
+    if (!displayName) return ''
+    const modLabel = REQUIREMENT_TYPE_LABEL[reqType]
+    const typeLabel = TRACKING_TYPE_LABEL[trackingType]
+    return `${modLabel}-${typeLabel}-${displayName}`
+  }, [reqType, trackingType])
 
   // 异步校验事件名
   const checkEventName = useCallback(async (_: any, value: string) => {
-    if (!value || modType !== 'new') return
+    if (!value || reqType !== 'new' || trackingType !== 'event') return
     setCheckingName(true)
     try {
       const { data } = await supabase.from('events').select('name').eq('name', value).maybeSingle()
@@ -64,60 +89,101 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
     } finally {
       setCheckingName(false)
     }
-  }, [modType])
+  }, [reqType, trackingType])
 
+  // 打开模态框时初始化表单（仅依赖 open，避免重复触发）
   useEffect(() => {
-    if (open) {
-      getEvents({ page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
-      // 加载已有版本号列表
-      getVersions().then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
-      if (editingValues) {
-        form.setFieldsValue(editingValues)
-        setModType(editingValues.modification_type || 'new')
-        setSelectedEventId(editingValues.event_id || null)
-        if (editingValues.event_id && editingValues.modification_type === 'modify') {
-          loadExistingProperties(editingValues.event_id)
-        }
-        // 加载已有的 proposed_properties 到 newProperties
-        if (editingValues.proposed_properties) {
-          setNewProperties(editingValues.proposed_properties.filter(p => p.action !== 'modify' && p.action !== 'delete'))
-          const actions: Record<string, PropertyAction> = {}
-          const mods: Record<string, Partial<EventProperty>> = {}
-          editingValues.proposed_properties.forEach(p => {
-            if (p.existing_id && p.action) actions[p.existing_id] = p.action
-            if (p.existing_id && p.action === 'modify') mods[p.existing_id] = {
-              name: p.name, display_name: p.display_name, type: p.type as any,
-              description: p.description, required: p.required,
-            }
-          })
-          setPropActions(actions)
-          setPropModifications(mods)
-        }
-      } else {
-        form.resetFields()
-        form.setFieldsValue({ priority: 'medium', modification_type: 'new' })
-        setModType('new')
-        setSelectedEventId(null)
-        setExistingProperties([])
-        setPropActions({})
-        setPropModifications({})
-        setNewProperties([])
-      }
-    }
-  }, [open, editingValues, form])
+    if (!open) return
+    getEvents({ page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
+    getVersions().then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
 
-  const loadExistingProperties = async (eventId: string) => {
+    if (editingValues) {
+      const editTrackingType = (editingValues.tracking_type as TrackingType) || 'event'
+      if (editTrackingType !== 'event') loadExistingPropList(editTrackingType)
+      setTrackingType((editingValues.tracking_type as TrackingType) || 'event')
+      setReqType((editingValues.modification_type as RequirementType) || 'new')
+      setSelectedEventId(editingValues.event_id || null)
+      setExistingProperties([])
+      setPropActions({})
+      setPropModifications({})
+      setNewProperties([])
+      setExistingPropList([])
+
+      // 使用 setTimeout 确保状态先更新再填充表单
+      setTimeout(() => {
+        form.setFieldsValue(editingValues)
+      }, 0)
+
+      if (editingValues.event_id && editingValues.modification_type === 'modify') {
+        loadExistingProperties(editingValues.event_id, false)
+      }
+      if (editingValues.proposed_properties) {
+        setNewProperties(editingValues.proposed_properties.filter(p => p.action !== 'modify' && p.action !== 'delete'))
+        const actions: Record<string, PropertyAction> = {}
+        const mods: Record<string, Partial<EventProperty>> = {}
+        editingValues.proposed_properties.forEach(p => {
+          if (p.existing_id && p.action) actions[p.existing_id] = p.action
+          if (p.existing_id && p.action === 'modify') mods[p.existing_id] = {
+            name: p.name, display_name: p.display_name, type: p.type as any,
+            description: p.description, required: p.required,
+          }
+        })
+        setPropActions(actions)
+        setPropModifications(mods)
+      }
+    } else {
+      setTrackingType('event')
+      setReqType('new')
+      setSelectedEventId(null)
+      setExistingProperties([])
+      setPropActions({})
+      setPropModifications({})
+      setNewProperties([])
+      setExistingPropList([])
+      form.resetFields()
+      form.setFieldsValue({ priority: 'medium', modification_type: 'new', tracking_type: 'event' })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const loadExistingProperties = async (eventId: string, resetActions = true) => {
     try {
       const props = await getEventProperties(eventId)
       setExistingProperties(props)
-      setPropActions({})
-      setPropModifications({})
+      if (resetActions) {
+        setPropActions({})
+        setPropModifications({})
+      }
     } catch { message.error('加载事件属性失败') }
   }
 
-  // 切换修改类型
-  const handleModTypeChange = (type: 'new' | 'modify') => {
-    setModType(type)
+  // 加载已有属性列表（公共属性/用户属性修改模式）
+  const loadExistingPropList = async (type: TrackingType) => {
+    if (type === 'event') return
+    const table = type === 'common_property' ? 'common_properties' : 'user_properties'
+    try {
+      const { data } = await supabase.from(table).select('id, name, display_name').order('name')
+      setExistingPropList((data || []) as any[])
+    } catch { /* ignore */ }
+  }
+
+  // 切换埋点类型 — 重置整个表单为新页面
+  const handleTrackingTypeChange = (type: TrackingType) => {
+    setTrackingType(type)
+    setSelectedEventId(null)
+    setExistingProperties([])
+    setNewProperties([])
+    setPropActions({})
+    setPropModifications({})
+    setExistingPropList([])
+    form.resetFields()
+    form.setFieldsValue({ modification_type: reqType, priority: 'medium' })
+    if (type !== 'event') loadExistingPropList(type)
+  }
+
+  // 切换需求类型
+  const handleReqTypeChange = (type: RequirementType) => {
+    setReqType(type)
     if (type === 'new') {
       setSelectedEventId(null)
       setExistingProperties([])
@@ -129,6 +195,10 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
   const handleEventSelect = (eventId: string) => {
     setSelectedEventId(eventId)
     loadExistingProperties(eventId)
+    const selected = existingEvents.find(e => e.id === eventId)
+    if (selected) {
+      form.setFieldsValue({ display_name: selected.display_name })
+    }
   }
 
   // 对已有属性的操作
@@ -165,42 +235,66 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
       const values = await form.validateFields()
       setSubmitting(true)
 
-      // 组装 proposed_properties
+      // 自动生成标题
+      const displayName = values.display_name || ''
+      const title = autoTitle(displayName)
+
+      // 组装 proposed_properties（仅事件类型需要）
       const allProps: ProposedProperty[] = []
 
-      // 已有属性（modified/deleted）
-      existingProperties.forEach(ep => {
-        const action = propActions[ep.id] || 'keep'
-        if (action === 'delete') {
-          allProps.push({ name: ep.name, type: ep.type as any, description: ep.description || '', required: ep.required, action: 'delete', existing_id: ep.id })
-        } else if (action === 'modify') {
-          const mod = propModifications[ep.id] || {}
-          allProps.push({
-            name: (mod as any).name || ep.name,
-            display_name: (mod as any).display_name !== undefined ? (mod as any).display_name : (ep.display_name || ''),
-            type: (mod as any).type || ep.type,
-            description: (mod as any).description !== undefined ? (mod as any).description : (ep.description || ''),
-            required: (mod as any).required !== undefined ? (mod as any).required : ep.required,
-            action: 'modify',
-            existing_id: ep.id,
-          })
+      if (trackingType === 'event') {
+        // 已有属性（modified/deleted）
+        existingProperties.forEach(ep => {
+          const action = propActions[ep.id] || 'keep'
+          if (action === 'delete') {
+            allProps.push({ name: ep.name, type: ep.type as any, description: ep.description || '', required: ep.required, action: 'delete', existing_id: ep.id })
+          } else if (action === 'modify') {
+            const mod = propModifications[ep.id] || {}
+            allProps.push({
+              name: (mod as any).name || ep.name,
+              display_name: (mod as any).display_name !== undefined ? (mod as any).display_name : (ep.display_name || ''),
+              type: (mod as any).type || ep.type,
+              description: (mod as any).description !== undefined ? (mod as any).description : (ep.description || ''),
+              required: (mod as any).required !== undefined ? (mod as any).required : ep.required,
+              action: 'modify',
+              existing_id: ep.id,
+            })
+          }
+        })
+
+        // 新增属性
+        newProperties.filter(p => p.name.trim()).forEach(p => {
+          allProps.push({ ...p, action: 'add' })
+        })
+
+        if (reqType === 'modify') {
+          values.event_id = selectedEventId
+          const selected = existingEvents.find(e => e.id === selectedEventId)
+          values.event_name = selected?.name || values.event_name
+        } else {
+          values.event_id = null
         }
-      })
-
-      // 新增属性
-      newProperties.filter(p => p.name.trim()).forEach(p => {
-        allProps.push({ ...p, action: 'add' })
-      })
-
-      if (modType === 'modify') {
-        values.event_id = selectedEventId
-        const selected = existingEvents.find(e => e.id === selectedEventId)
-        values.event_name = selected?.name || values.event_name
-      } else {
-        values.event_id = null
       }
 
-      await onSubmit({ ...values, proposed_properties: allProps })
+      // 排除仅用于表单展示的字段，防止传入不存在的数据库列
+      const {
+        property_name, property_type, property_description, property_required,
+        ...cleanValues
+      } = values
+
+      // 非事件类型时，将 property_name 映射到 event_name（复用字段）
+      if (!isEventType && property_name) {
+        cleanValues.event_name = property_name
+      }
+
+      await onSubmit({
+        ...cleanValues,
+        title,
+        tracking_type: trackingType,
+        modification_type: reqType,
+        display_name: displayName,
+        proposed_properties: allProps,
+      })
       form.resetFields()
     } catch (err: any) {
       if (err.message && err.message !== 'VALIDATE_FAILED') message.error(err.message)
@@ -209,63 +303,152 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
     }
   }
 
+  // 表单值变化监听
+  const handleFormValuesChange = (changed: any) => {
+    if (changed.modification_type !== undefined) handleReqTypeChange(changed.modification_type)
+  }
+
+  const isEventType = trackingType === 'event'
+  const isNewType = reqType === 'new'
+
+  // 每次打开模态框生成新 key，强制全新渲染避免状态残留
+  const [modalKey, setModalKey] = useState(0)
+  useEffect(() => {
+    if (open) setModalKey(k => k + 1)
+  }, [open])
+
   return (
     <Modal
+      key={modalKey}
       title={editingValues ? '编辑需求' : '提交埋点需求'}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
       confirmLoading={submitting}
       destroyOnClose
-      width={700}
+      width={720}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}
-        onValuesChange={(changed) => {
-          if (changed.modification_type !== undefined) handleModTypeChange(changed.modification_type)
-        }}
+        onValuesChange={handleFormValuesChange}
       >
-        <Form.Item name="title" label="需求标题" rules={[{ required: true, message: '请输入需求标题' }]}>
-          <Input placeholder="如：新增商品详情页浏览埋点" />
-        </Form.Item>
-        <Form.Item name="description" label="业务场景描述">
-          <TextArea rows={2} placeholder="描述业务场景：希望追踪什么行为、用于什么分析目的" />
-        </Form.Item>
-
-        <Form.Item name="modification_type" label="需求类型" rules={[{ required: true }]}>
-          <Radio.Group>
-            <Radio value="new">新增事件</Radio>
-            <Radio value="modify">修改已有事件</Radio>
+        {/* 埋点类型 — 事件 / 公共属性 / 用户属性 */}
+        <Form.Item label="埋点类型" rules={[{ required: true }]}>
+          <Radio.Group
+            value={trackingType}
+            onChange={(e) => handleTrackingTypeChange(e.target.value)}
+          >
+            {TRACKING_TYPE_OPTIONS.map(opt => (
+              <Radio key={opt.value} value={opt.value}>{opt.label}</Radio>
+            ))}
           </Radio.Group>
         </Form.Item>
 
-        {modType === 'new' ? (
-          <Form.Item
-            name="event_name"
-            label="建议事件名"
-            rules={[
-              { required: true, message: '请输入建议事件名' },
-              { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
-              { validator: checkEventName },
-            ]}
-            validateTrigger="onBlur"
-          >
-            <Input placeholder="如 product_detail_view" suffix={checkingName ? '校验中...' : null} />
-          </Form.Item>
-        ) : (
-          <Form.Item name="event_id" label="选择事件" rules={[{ required: true, message: '请选择要修改的事件' }]}>
-            <Select
-              showSearch
-              placeholder="搜索选择已有事件"
-              optionFilterProp="label"
-              onChange={(id) => handleEventSelect(id)}
-              options={existingEvents.map((e) => ({
-                value: e.id,
-                label: `${e.name} (${e.display_name})`,
-              }))}
-            />
-          </Form.Item>
+        {/* 需求类型 — 新增 / 修改 */}
+        <Form.Item name="modification_type" label="需求类型" rules={[{ required: true }]}>
+          <Radio.Group>
+            <Radio value="new">新增</Radio>
+            <Radio value="modify">修改</Radio>
+          </Radio.Group>
+        </Form.Item>
+
+        {/* 显示名 — 用于自动生成标题 */}
+        <Form.Item
+          name="display_name"
+          label="显示名"
+          rules={[{ required: true, message: '请输入显示名' }]}
+          extra={autoTitle(form.getFieldValue('display_name') || '') ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}` : ''}
+        >
+          <Input placeholder="如：商品点击、用户等级、会员类型" />
+        </Form.Item>
+
+        {/* ====== 事件类型的字段 ====== */}
+        {isEventType && (
+          <>
+            {isNewType ? (
+              <Form.Item
+                name="event_name"
+                label="建议事件名"
+                rules={[
+                  { required: true, message: '请输入建议事件名' },
+                  { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
+                  { validator: checkEventName },
+                ]}
+                validateTrigger="onBlur"
+              >
+                <Input placeholder="如 product_detail_view" suffix={checkingName ? '校验中...' : null} />
+              </Form.Item>
+            ) : (
+              <Form.Item name="event_id" label="选择事件" rules={[{ required: true, message: '请选择要修改的事件' }]}>
+                <Select
+                  showSearch
+                  placeholder="搜索选择已有事件"
+                  optionFilterProp="label"
+                  onChange={(id) => handleEventSelect(id)}
+                  options={existingEvents.map((e) => ({
+                    value: e.id,
+                    label: `${e.name} (${e.display_name})`,
+                  }))}
+                />
+              </Form.Item>
+            )}
+
+            <Form.Item name="description" label="业务场景描述">
+              <TextArea rows={2} placeholder="描述业务场景：希望追踪什么行为、用于什么分析目的" />
+            </Form.Item>
+          </>
         )}
 
+        {/* ====== 公共属性/用户属性类型的字段 ====== */}
+        {!isEventType && (
+          <>
+            {isNewType ? (
+              <>
+                <Form.Item
+                  name="property_name"
+                  label="属性名"
+                  rules={[
+                    { required: true, message: '请输入属性名' },
+                    { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
+                  ]}
+                >
+                  <Input placeholder="如 user_level, login_count" />
+                </Form.Item>
+                <Form.Item name="property_type" label="属性类型" initialValue="string">
+                  <Select options={typeOptions} />
+                </Form.Item>
+                <Form.Item name="property_description" label="属性说明">
+                  <TextArea rows={2} placeholder="描述属性的含义和用途" />
+                </Form.Item>
+                <Form.Item name="property_required" label="是否必填" initialValue={false}>
+                  <Select options={[
+                    { value: false, label: '可选' }, { value: true, label: '必填' },
+                  ]} />
+                </Form.Item>
+              </>
+            ) : (
+              <Form.Item name="property_name" label="选择已有属性" rules={[{ required: true, message: '请选择要修改的属性' }]}>
+                <Select
+                  showSearch
+                  placeholder={`搜索选择已有${TRACKING_TYPE_LABEL[trackingType]}`}
+                  optionFilterProp="label"
+                  onChange={(val) => {
+                    setSelectedEventId(val)
+                    const selected = existingPropList.find(p => p.id === val)
+                    if (selected) {
+                      form.setFieldsValue({ event_name: selected.name, display_name: selected.display_name || selected.name })
+                    }
+                  }}
+                  options={existingPropList.map(p => ({
+                    value: p.id,
+                    label: `${p.name}${p.display_name ? ` (${p.display_name})` : ''}`,
+                  }))}
+                />
+              </Form.Item>
+            )}
+          </>
+        )}
+
+        {/* 公共字段 */}
         <Form.Item name="priority" label="优先级" rules={[{ required: true }]}>
           <Select options={[
             { value: 'high', label: '高' },
@@ -295,8 +478,7 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
                 <div style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0' }}>
                   <Space>
                     <Button size="small" type="link" onClick={() => {
-                      const allValues = PLATFORM_OPTIONS.map(p => p.value)
-                      form.setFieldValue('platforms', allValues)
+                      form.setFieldValue('platforms', PLATFORM_OPTIONS.map(p => p.value))
                     }}>全选</Button>
                     <Button size="small" type="link" onClick={() => {
                       form.setFieldValue('platforms', [])
@@ -313,8 +495,8 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
           <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
         </Form.Item>
 
-        {/* ====== 已有属性管理（修改模式） ====== */}
-        {modType === 'modify' && selectedEventId && existingProperties.length > 0 && (
+        {/* ====== 已有属性管理（事件 + 修改模式） ====== */}
+        {isEventType && !isNewType && selectedEventId && existingProperties.length > 0 && (
           <>
             <Divider plain style={{ fontSize: 13, marginTop: 16 }}>已有属性</Divider>
             <div style={{ marginBottom: 12, fontSize: 12, color: '#999' }}>
@@ -331,7 +513,6 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
                   marginBottom: 8,
                   background: action === 'delete' ? '#fff1f0' : action === 'modify' ? '#fffbe6' : '#fff',
                 }}>
-                  {/* 头部：属性名 + 操作按钮 */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: action === 'modify' ? 8 : 0 }}>
                     <Space size={4}>
                       <code style={{ fontWeight: 500 }}>{ep.name}</code>
@@ -358,7 +539,6 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
                     </Space>
                   </div>
 
-                  {/* 修改表单 */}
                   {action === 'modify' && (
                     <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff', borderRadius: 4, border: '1px dashed #faad14' }}>
                       <Space wrap size={[8, 4]}>
@@ -396,28 +576,32 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
           </>
         )}
 
-        {/* ====== 新增属性 ====== */}
-        <Divider plain style={{ fontSize: 13, marginTop: 16 }}>
-          新增属性 {modType === 'modify' && selectedEventId ? '（将追加到事件）' : ''}
-        </Divider>
-        {newProperties.map((prop, idx) => (
-          <Space key={idx} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
-            <Input placeholder="属性名" style={{ width: 100 }} value={prop.name}
-              onChange={e => updateNewProp(idx, 'name', e.target.value)} />
-            <Input placeholder="显示名" style={{ width: 100 }} value={prop.display_name || ''}
-              onChange={e => updateNewProp(idx, 'display_name', e.target.value)} />
-            <Select style={{ width: 90 }} value={prop.type}
-              onChange={v => updateNewProp(idx, 'type', v)} options={typeOptions} />
-            <Input placeholder="说明" style={{ width: 120 }} value={prop.description}
-              onChange={e => updateNewProp(idx, 'description', e.target.value)} />
-            <Select style={{ width: 70 }} value={prop.required}
-              onChange={v => updateNewProp(idx, 'required', v)} options={[
-                { value: false, label: '可选' }, { value: true, label: '必填' },
-              ]} />
-            <MinusCircleOutlined onClick={() => removeNewProp(idx)} style={{ color: '#ff4d4f' }} />
-          </Space>
-        ))}
-        <Button type="dashed" onClick={addNewProp} block icon={<PlusOutlined />}>添加属性</Button>
+        {/* ====== 新增属性（事件类型） ====== */}
+        {isEventType && (
+          <>
+            <Divider plain style={{ fontSize: 13, marginTop: 16 }}>
+              新增属性 {!isNewType && selectedEventId ? '（将追加到事件）' : ''}
+            </Divider>
+            {newProperties.map((prop, idx) => (
+              <Space key={idx} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
+                <Input placeholder="属性名" style={{ width: 100 }} value={prop.name}
+                  onChange={e => updateNewProp(idx, 'name', e.target.value)} />
+                <Input placeholder="显示名" style={{ width: 100 }} value={prop.display_name || ''}
+                  onChange={e => updateNewProp(idx, 'display_name', e.target.value)} />
+                <Select style={{ width: 90 }} value={prop.type}
+                  onChange={v => updateNewProp(idx, 'type', v)} options={typeOptions} />
+                <Input placeholder="说明" style={{ width: 120 }} value={prop.description}
+                  onChange={e => updateNewProp(idx, 'description', e.target.value)} />
+                <Select style={{ width: 70 }} value={prop.required}
+                  onChange={v => updateNewProp(idx, 'required', v)} options={[
+                    { value: false, label: '可选' }, { value: true, label: '必填' },
+                  ]} />
+                <MinusCircleOutlined onClick={() => removeNewProp(idx)} style={{ color: '#ff4d4f' }} />
+              </Space>
+            ))}
+            <Button type="dashed" onClick={addNewProp} block icon={<PlusOutlined />}>添加属性</Button>
+          </>
+        )}
       </Form>
     </Modal>
   )

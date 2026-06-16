@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Button, Space, Popconfirm, message, Select } from 'antd'
+import { Card, Descriptions, Button, Space, Popconfirm, Tag, message, Select } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { getEventById, updateEvent, deleteEvent } from '../../api/events'
 import { getEventProperties, createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
 import StatusBadge from '../../components/StatusBadge'
 import PropertyTable from '../../components/PropertyTable'
 import type { TrackingEvent, EventProperty, EventStatus } from '../../types'
+import { PLATFORM_OPTIONS } from '../../types'
 import type { PropertyItem } from '../../components/PropertyTable'
 
 export default function EventDetailPage() {
@@ -105,6 +106,15 @@ export default function EventDetailPage() {
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="分类">{event.categories?.name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="目标平台">
+                {(event.platforms || []).length > 0
+                  ? (event.platforms || []).map((p: string) => {
+                      const opt = PLATFORM_OPTIONS.find(o => o.value === p)
+                      return <Tag key={p} color={opt?.color}>{opt?.label || p}</Tag>
+                    })
+                  : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="触发时机">{event.trigger_timing || '-'}</Descriptions.Item>
               <Descriptions.Item label="版本">v{event.version}</Descriptions.Item>
               <Descriptions.Item label="创建时间">
                 {event.created_at ? new Date(event.created_at).toLocaleString('zh-CN') : '-'}
@@ -116,6 +126,11 @@ export default function EventDetailPage() {
             {event.description && (
               <div style={{ marginTop: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 6 }}>
                 <strong>描述：</strong>{event.description}
+              </div>
+            )}
+            {event.notes && (
+              <div style={{ marginTop: 12, padding: '12px 16px', background: '#fffbe6', borderRadius: 6 }}>
+                <strong>备注：</strong>{event.notes}
               </div>
             )}
           </div>

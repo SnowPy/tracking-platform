@@ -53,6 +53,9 @@ export async function createEvent(data: {
   category_id?: string | null
   description?: string
   status?: string
+  platforms?: string[]
+  trigger_timing?: string
+  notes?: string
 }) {
   const { data: result, error } = await supabase
     .from('events')
@@ -69,6 +72,9 @@ export async function updateEvent(id: string, data: {
   category_id?: string | null
   description?: string
   status?: string
+  platforms?: string[]
+  trigger_timing?: string
+  notes?: string
 }) {
   const { data: result, error } = await supabase
     .from('events')

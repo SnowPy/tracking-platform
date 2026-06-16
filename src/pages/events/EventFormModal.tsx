@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Modal, Form, Input, Select, TreeSelect, message } from 'antd'
 import { getCategories } from '../../api/categories'
-import type { TrackingEvent, Category, EventStatus } from '../../types'
+import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
+import { PLATFORM_OPTIONS } from '../../types'
 
 const { TextArea } = Input
 
@@ -14,6 +15,9 @@ interface EventFormModalProps {
     category_id?: string | null
     description?: string
     status: EventStatus
+    platforms?: Platform[]
+    trigger_timing?: string
+    notes?: string
   }) => Promise<void>
   onCancel: () => void
 }
@@ -27,10 +31,13 @@ export default function EventFormModal({ open, editingRecord, onSubmit, onCancel
     if (open) {
       getCategories().then(setCategories).catch(() => {})
       if (editingRecord) {
-        form.setFieldsValue(editingRecord)
+        form.setFieldsValue({
+          ...editingRecord,
+          platforms: editingRecord.platforms || [],
+        })
       } else {
         form.resetFields()
-        form.setFieldsValue({ status: 'draft' })
+        form.setFieldsValue({ status: 'draft', platforms: [] })
       }
     }
   }, [open, editingRecord, form])
@@ -82,6 +89,20 @@ export default function EventFormModal({ open, editingRecord, onSubmit, onCancel
         </Form.Item>
         <Form.Item name="description" label="描述">
           <TextArea rows={3} placeholder="事件描述：触发时机、业务场景等" />
+        </Form.Item>
+        <Form.Item name="trigger_timing" label="触发时机">
+          <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
+        </Form.Item>
+        <Form.Item name="platforms" label="目标平台">
+          <Select
+            mode="multiple"
+            placeholder="选择平台"
+            allowClear
+            options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+          />
+        </Form.Item>
+        <Form.Item name="notes" label="备注">
+          <TextArea rows={2} placeholder="补充说明" />
         </Form.Item>
       </Form>
     </Modal>

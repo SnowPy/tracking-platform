@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Table, Button, Space, Modal, Form, Input, Select, Switch, Popconfirm, message, Tooltip } from 'antd'
+import { Table, Button, Space, Modal, Form, Input, Select, Switch, Popconfirm, message, Tooltip, Tag } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import type { PropertyType } from '../types'
+import type { PropertyType, Platform } from '../types'
+import { PLATFORM_OPTIONS } from '../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from './PropertyTypeTag'
 
 const { TextArea } = Input
@@ -15,6 +16,8 @@ export interface PropertyItem {
   description: string | null
   required?: boolean
   example_value: string | null
+  platforms?: Platform[]
+  notes?: string | null
   sort_order?: number
 }
 
@@ -25,6 +28,8 @@ export interface PropertyCreateValues {
   description?: string
   required?: boolean
   example_value?: string
+  platforms?: Platform[]
+  notes?: string
 }
 
 interface PropertyTableProps {
@@ -46,7 +51,7 @@ export default function PropertyTable({ dataSource, loading, showRequired, onCre
   const handleOpenCreate = () => {
     setEditingRecord(null)
     form.resetFields()
-    form.setFieldsValue({ type: 'string', required: false })
+    form.setFieldsValue({ type: 'string', required: false, platforms: [] })
     setModalOpen(true)
   }
 
@@ -59,6 +64,8 @@ export default function PropertyTable({ dataSource, loading, showRequired, onCre
       description: record.description,
       required: record.required,
       example_value: record.example_value,
+      platforms: record.platforms || [],
+      notes: record.notes || '',
     })
     setModalOpen(true)
   }
@@ -112,6 +119,17 @@ export default function PropertyTable({ dataSource, loading, showRequired, onCre
     {
       title: '示例值', dataIndex: 'example_value', key: 'example_value', width: 110,
       render: (text: string | null) => text || '-',
+    },
+    {
+      title: '平台', dataIndex: 'platforms', key: 'platforms', width: 120,
+      render: (platforms: Platform[] | undefined) => (platforms || []).map((p: string) => {
+        const opt = PLATFORM_OPTIONS.find(o => o.value === p)
+        return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
+      }),
+    },
+    {
+      title: '备注', dataIndex: 'notes', key: 'notes', width: 120, ellipsis: true,
+      render: (text: string | null) => text ? <Tooltip title={text}>{text}</Tooltip> : '-',
     },
     {
       title: '操作', key: 'actions', width: 120,
@@ -170,6 +188,17 @@ export default function PropertyTable({ dataSource, loading, showRequired, onCre
           )}
           <Form.Item name="example_value" label="示例值">
             <Input placeholder="示例值" />
+          </Form.Item>
+          <Form.Item name="platforms" label="目标平台">
+            <Select
+              mode="multiple"
+              placeholder="选择平台"
+              allowClear
+              options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+            />
+          </Form.Item>
+          <Form.Item name="notes" label="备注">
+            <TextArea rows={2} placeholder="补充说明" />
           </Form.Item>
         </Form>
       </Modal>

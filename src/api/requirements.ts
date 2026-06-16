@@ -26,10 +26,17 @@ export async function getRequirements(): Promise<Requirement[]> {
 
 export async function createRequirement(data: {
   title: string
+  display_name?: string
+  tracking_type?: string
   description?: string
   event_name?: string
+  event_id?: string | null
+  modification_type?: string
   proposed_properties?: ProposedProperty[]
   priority?: string
+  version?: string | null
+  platforms?: string[]
+  trigger_timing?: string | null
 }) {
   const { data: result, error } = await supabase
     .from('requirements')
@@ -42,13 +49,20 @@ export async function createRequirement(data: {
 
 export async function updateRequirement(id: string, data: {
   title?: string
+  display_name?: string
+  tracking_type?: string
   description?: string
   event_name?: string
+  event_id?: string | null
+  modification_type?: string
   proposed_properties?: ProposedProperty[]
   status?: string
   priority?: string
   assignee_id?: string | null
   comment?: string
+  version?: string | null
+  platforms?: string[]
+  trigger_timing?: string | null
 }) {
   const { data: result, error } = await supabase
     .from('requirements')
