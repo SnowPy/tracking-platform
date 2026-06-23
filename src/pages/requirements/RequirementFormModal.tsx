@@ -24,6 +24,7 @@ const REQUIREMENT_TYPE_LABEL: Record<RequirementType, string> = {
 
 interface RequirementFormModalProps {
   open: boolean
+  projectId: string
   editingValues?: {
     title?: string
     display_name?: string
@@ -55,7 +56,7 @@ interface RequirementFormModalProps {
   onCancel: () => void
 }
 
-export default function RequirementFormModal({ open, editingValues, onSubmit, onCancel }: RequirementFormModalProps) {
+export default function RequirementFormModal({ open, projectId, editingValues, onSubmit, onCancel }: RequirementFormModalProps) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   const [trackingType, setTrackingType] = useState<TrackingType>('event')
@@ -69,7 +70,7 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
   const [checkingName, setCheckingName] = useState(false)
   const [existingVersions, setExistingVersions] = useState<string[]>([])
   const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
-  const typeOptions = usePropertyTypeOptions()
+  const typeOptions = usePropertyTypeOptions(projectId)
 
   // 标题自动生成
   const autoTitle = useCallback((displayName: string) => {
@@ -84,18 +85,18 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
     if (!value || reqType !== 'new' || trackingType !== 'event') return
     setCheckingName(true)
     try {
-      const { data } = await supabase.from('events').select('name').eq('name', value).maybeSingle()
+      const { data } = await supabase.from('events').select('name').eq('project_id', projectId).eq('name', value).maybeSingle()
       if (data) return Promise.reject(new Error(`事件名「${value}」已存在`))
     } finally {
       setCheckingName(false)
     }
-  }, [reqType, trackingType])
+  }, [reqType, trackingType, projectId])
 
   // 打开模态框时初始化表单（仅依赖 open，避免重复触发）
   useEffect(() => {
     if (!open) return
-    getEvents({ page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
-    getVersions().then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
+    getEvents({ projectId, page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
+    getVersions(projectId).then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
 
     if (editingValues) {
       const editTrackingType = (editingValues.tracking_type as TrackingType) || 'event'
@@ -162,7 +163,7 @@ export default function RequirementFormModal({ open, editingValues, onSubmit, on
     if (type === 'event') return
     const table = type === 'common_property' ? 'common_properties' : 'user_properties'
     try {
-      const { data } = await supabase.from(table).select('id, name, display_name').order('name')
+      const { data } = await supabase.from(table).select('id, name, display_name').eq('project_id', projectId).order('name')
       setExistingPropList((data || []) as any[])
     } catch { /* ignore */ }
   }

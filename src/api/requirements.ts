@@ -1,11 +1,12 @@
 import { supabase } from '../supabase/client'
 import type { Requirement, ProposedProperty } from '../types'
 
-export async function getRequirements(): Promise<Requirement[]> {
+export async function getRequirements(projectId: string): Promise<Requirement[]> {
   // 分别查询需求和用户信息，在前端做关联
   const { data, error } = await supabase
     .from('requirements')
     .select('*')
+    .eq('project_id', projectId)
     .order('created_at', { ascending: false })
   if (error) throw error
 
@@ -25,6 +26,7 @@ export async function getRequirements(): Promise<Requirement[]> {
 }
 
 export async function createRequirement(data: {
+  project_id: string
   title: string
   display_name?: string
   tracking_type?: string

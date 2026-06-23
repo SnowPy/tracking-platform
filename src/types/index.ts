@@ -1,5 +1,12 @@
 // 数据库类型定义
 
+export interface Project {
+  id: string
+  name: string
+  description: string | null
+  created_at: string
+}
+
 export interface Profile {
   id: string
   display_name: string | null
@@ -10,6 +17,7 @@ export interface Profile {
 
 export interface Category {
   id: string
+  project_id: string
   name: string
   description: string | null
   parent_id: string | null
@@ -21,6 +29,7 @@ export type EventStatus = 'draft' | 'active' | 'deprecated'
 
 export interface TrackingEvent {
   id: string
+  project_id: string
   name: string
   display_name: string
   category_id: string | null
@@ -43,6 +52,7 @@ export type PropertyType = string  // 动态类型，由 property_types 表管�
 
 export interface PropertyTypeConfig {
   id: string
+  project_id: string
   value: string
   label: string
   color: string
@@ -63,6 +73,7 @@ export const PLATFORM_OPTIONS: { value: Platform; label: string; color: string }
 
 export interface EventProperty {
   id: string
+  project_id: string
   event_id: string
   name: string
   display_name: string | null
@@ -77,6 +88,7 @@ export interface EventProperty {
 
 export interface UserProperty {
   id: string
+  project_id: string
   name: string
   display_name: string | null
   type: PropertyType
@@ -91,6 +103,7 @@ export interface UserProperty {
 
 export interface CommonProperty {
   id: string
+  project_id: string
   name: string
   display_name: string | null
   type: PropertyType
@@ -116,6 +129,7 @@ export const TRACKING_TYPE_OPTIONS: { value: TrackingType; label: string }[] = [
 
 export interface Requirement {
   id: string
+  project_id: string
   title: string
   display_name: string | null
   tracking_type: TrackingType
@@ -164,6 +178,11 @@ export interface DashboardStats {
 export interface Database {
   public: {
     Tables: {
+      projects: {
+        Row: Project
+        Insert: Omit<Project, 'id' | 'created_at'>
+        Update: Partial<Omit<Project, 'id'>>
+      }
       profiles: {
         Row: Profile
         Insert: Omit<Profile, 'created_at' | 'updated_at'>

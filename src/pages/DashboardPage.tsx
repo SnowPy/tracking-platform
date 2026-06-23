@@ -9,12 +9,14 @@ import { getEventStats, getEvents } from '../api/events'
 import { getRequirements } from '../api/requirements'
 import type { TrackingEvent, Requirement } from '../types'
 import StatusBadge from '../components/StatusBadge'
+import { useProjectStore } from '../stores/projectStore'
 
 const { Text } = Typography
 
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { token } = theme.useToken()
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [stats, setStats] = useState({ total: 0, active: 0, deprecated: 0 })
   const [recentEvents, setRecentEvents] = useState<TrackingEvent[]>([])
   const [pendingReqs, setPendingReqs] = useState<Requirement[]>([])
@@ -22,11 +24,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const load = async () => {
+      if (!projectId) return
       try {
         const [eventStats, events, reqs] = await Promise.all([
-          getEventStats(),
-          getEvents({ page: 1 }).then((r) => r.data.slice(0, 5)),
-          getRequirements(),
+          getEventStats(projectId),
+          getEvents({ projectId, page: 1 }).then((r) => r.data.slice(0, 5)),
+          getRequirements(projectId),
         ])
         setStats(eventStats)
         setRecentEvents(events)
@@ -38,7 +41,7 @@ export default function DashboardPage() {
       }
     }
     load()
-  }, [])
+  }, [projectId])
 
   return (
     <div>

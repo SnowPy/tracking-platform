@@ -6,18 +6,21 @@ import { getEventProperties } from '../../api/eventProperties'
 import type { TrackingEvent, EventProperty } from '../../types'
 import StatusBadge from '../../components/StatusBadge'
 import PropertyTypeTag from '../../components/PropertyTypeTag'
+import { useProjectStore } from '../../stores/projectStore'
 
 const { Title, Paragraph, Text } = Typography
 
 export default function DocsPage() {
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [propertiesMap, setPropertiesMap] = useState<Record<string, EventProperty[]>>({})
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     const load = async () => {
+      if (!projectId) return
       try {
-        const { data } = await getEvents({ page: 1 })
+        const { data } = await getEvents({ projectId, page: 1 })
         setEvents(data.filter((e) => e.status !== 'deprecated'))
 
         const map: Record<string, EventProperty[]> = {}
@@ -34,7 +37,7 @@ export default function DocsPage() {
       }
     }
     load()
-  }, [])
+  }, [projectId])
 
   // 导出 CSV
   const handleExportCSV = () => {
@@ -130,7 +133,7 @@ export default function DocsPage() {
                 columns={[
                   { title: '属性名', dataIndex: 'name', key: 'name', width: 130, render: (v: string) => <code>{v}</code> },
                   { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 100, render: (v: string | null) => v || '-' },
-                  { title: '类型', dataIndex: 'type', key: 'type', width: 80, render: (v: string) => <PropertyTypeTag type={v as any} /> },
+                  { title: '类型', dataIndex: 'type', key: 'type', width: 80, render: (v: string) => <PropertyTypeTag type={v as any} projectId={projectId!} /> },
                   { title: '必填', dataIndex: 'required', key: 'required', width: 55, render: (v: boolean) => v ? '是' : '否' },
                   { title: '说明', dataIndex: 'description', key: 'description', render: (v: string | null) => v || '-' },
                   { title: '示例值', dataIndex: 'example_value', key: 'example_value', render: (v: string | null) => v || '-' },

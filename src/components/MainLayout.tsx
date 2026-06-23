@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Button, Dropdown, theme } from 'antd'
+import { Layout, Menu, Button, Dropdown, Select, theme } from 'antd'
 import {
   DashboardOutlined,
   ThunderboltOutlined,
@@ -15,6 +15,7 @@ import {
   TagOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '../stores/authStore'
+import { useProjectStore } from '../stores/projectStore'
 
 const { Header, Sider, Content } = Layout
 
@@ -34,6 +35,7 @@ export default function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { profile, signOut } = useAuthStore()
+  const { projects, currentProjectId, setCurrentProject } = useProjectStore()
   const { token } = theme.useToken()
 
   const handleSignOut = async () => {
@@ -87,11 +89,22 @@ export default function MainLayout() {
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           height: 64,
         }}>
-          <Button
-            type="text"
-            icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            onClick={() => setCollapsed(!collapsed)}
-          />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+            />
+            {projects.length > 1 && currentProjectId && (
+              <Select
+                value={currentProjectId}
+                onChange={(value) => setCurrentProject(value)}
+                options={projects.map((p) => ({ value: p.id, label: p.name }))}
+                style={{ width: 140 }}
+                size="small"
+              />
+            )}
+          </div>
           <Dropdown menu={{ items: userMenuItems, onClick: ({ key }) => { if (key === 'logout') handleSignOut() } }}>
             <Button type="text" icon={<UserOutlined />}>
               {profile?.display_name || '用户'}

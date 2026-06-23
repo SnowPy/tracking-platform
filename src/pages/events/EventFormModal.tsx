@@ -9,6 +9,7 @@ const { TextArea } = Input
 interface EventFormModalProps {
   open: boolean
   editingRecord: TrackingEvent | null
+  projectId: string
   onSubmit: (values: {
     name: string
     display_name: string
@@ -22,14 +23,14 @@ interface EventFormModalProps {
   onCancel: () => void
 }
 
-export default function EventFormModal({ open, editingRecord, onSubmit, onCancel }: EventFormModalProps) {
+export default function EventFormModal({ open, editingRecord, projectId, onSubmit, onCancel }: EventFormModalProps) {
   const [form] = Form.useForm()
   const [categories, setCategories] = useState<Category[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
-      getCategories().then(setCategories).catch(() => {})
+      getCategories(projectId).then(setCategories).catch(() => {})
       if (editingRecord) {
         form.setFieldsValue({
           ...editingRecord,
@@ -40,7 +41,7 @@ export default function EventFormModal({ open, editingRecord, onSubmit, onCancel
         form.setFieldsValue({ status: 'draft', platforms: [] })
       }
     }
-  }, [open, editingRecord, form])
+  }, [open, editingRecord, form, projectId])
 
   const handleOk = async () => {
     try {

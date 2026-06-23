@@ -8,6 +8,7 @@ import { createEventProperty, updateEventProperty, deleteEventProperty } from '.
 import StatusBadge from '../../components/StatusBadge'
 import type { Requirement, ProposedProperty } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
+import { useProjectStore } from '../../stores/projectStore'
 
 const { TextArea } = Input
 const { Title, Text, Paragraph } = Typography
@@ -15,16 +16,17 @@ const { Title, Text, Paragraph } = Typography
 export default function RequirementDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [req, setReq] = useState<Requirement | null>(null)
   const [loading, setLoading] = useState(true)
   const [syncing, setSyncing] = useState(false)
   const [comment, setComment] = useState('')
 
   const load = async () => {
-    if (!id) return
+    if (!id || !projectId) return
     setLoading(true)
     try {
-      const data = await getRequirements()
+      const data = await getRequirements(projectId)
       const found = data.find((r) => r.id === id)
       if (found) {
         setReq(found)
@@ -34,7 +36,7 @@ export default function RequirementDetailPage() {
     finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [id])
+  useEffect(() => { load() }, [id, projectId])
 
   const handleStatusChange = async (status: string) => {
     if (!req) return
@@ -60,6 +62,7 @@ export default function RequirementDetailPage() {
         if (trackingType === 'event') {
           if (req.modification_type === 'new') {
             const { data: newEvent } = await supabase.from('events').insert({
+              project_id: projectId!,
               name: req.event_name!, display_name: req.display_name || req.title,
               description: req.description, status: 'active',
               platforms: req.platforms || [],
@@ -68,6 +71,7 @@ export default function RequirementDetailPage() {
             if (newEvent && req.proposed_properties?.length) {
               await supabase.from('event_properties').insert(
                 req.proposed_properties.filter(p => !p.action || p.action === 'add').map(p => ({
+                  project_id: projectId!,
                   event_id: newEvent.id, name: p.name,
                   display_name: p.display_name || p.name,
                   type: p.type, description: p.description, required: p.required,
@@ -82,6 +86,7 @@ export default function RequirementDetailPage() {
                 name: p.name, display_name: p.display_name, type: p.type, description: p.description, required: p.required,
               })
               else await createEventProperty({
+                project_id: projectId!,
                 event_id: req.event_id, name: p.name, display_name: p.display_name || p.name,
                 type: p.type, description: p.description, required: p.required,
               })
@@ -93,6 +98,7 @@ export default function RequirementDetailPage() {
           const tableName = trackingType === 'common_property' ? 'common_properties' : 'user_properties'
           if (req.modification_type === 'new') {
             await supabase.from(tableName).insert({
+              project_id: projectId!,
               name: req.event_name!,
               display_name: req.display_name || req.title,
               type: 'string',

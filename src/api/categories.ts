@@ -1,17 +1,18 @@
 import { supabase } from '../supabase/client'
 import type { Category } from '../types'
 
-export async function getCategories() {
+export async function getCategories(projectId: string) {
   const { data, error } = await supabase
     .from('categories')
     .select('*')
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true })
   if (error) throw error
   return data
 }
 
-export async function getCategoryTree() {
-  const categories = await getCategories()
+export async function getCategoryTree(projectId: string) {
+  const categories = await getCategories(projectId)
   const map = new Map<string, Category & { children: Category[] }>()
   const roots: (Category & { children: Category[] })[] = []
 
@@ -29,7 +30,7 @@ export async function getCategoryTree() {
   return roots
 }
 
-export async function createCategory(data: { name: string; description?: string; parent_id?: string | null }) {
+export async function createCategory(data: { project_id: string; name: string; description?: string; parent_id?: string | null }) {
   const { data: result, error } = await supabase
     .from('categories')
     .insert({ ...data, sort_order: 0 })

@@ -1,16 +1,17 @@
 import { supabase } from '../supabase/client'
 import type { PropertyTypeConfig } from '../types'
 
-export async function getPropertyTypes(): Promise<PropertyTypeConfig[]> {
+export async function getPropertyTypes(projectId: string): Promise<PropertyTypeConfig[]> {
   const { data, error } = await supabase
     .from('property_types')
     .select('*')
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true })
   if (error) throw error
   return data
 }
 
-export async function createPropertyType(data: { value: string; label: string; color?: string }) {
+export async function createPropertyType(data: { project_id: string; value: string; label: string; color?: string }) {
   const { data: result, error } = await supabase
     .from('property_types')
     .insert(data)

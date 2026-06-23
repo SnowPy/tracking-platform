@@ -3,8 +3,10 @@ import { Card, Table, Button, Modal, Form, Input, ColorPicker, Space, Popconfirm
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { getPropertyTypes, createPropertyType, updatePropertyType, deletePropertyType } from '../../api/propertyTypes'
 import type { PropertyTypeConfig } from '../../types'
+import { useProjectStore } from '../../stores/projectStore'
 
 export default function PropertyTypePage() {
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [types, setTypes] = useState<PropertyTypeConfig[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -13,12 +15,13 @@ export default function PropertyTypePage() {
   const [form] = Form.useForm()
 
   const load = async () => {
+    if (!projectId) return
     setLoading(true)
-    try { setTypes(await getPropertyTypes()) } catch (e: any) { message.error(e.message) }
+    try { setTypes(await getPropertyTypes(projectId)) } catch (e: any) { message.error(e.message) }
     finally { setLoading(false) }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [projectId])
 
   const openCreate = () => { setEditing(null); form.resetFields(); form.setFieldsValue({ color: '#1677ff' }); setModalOpen(true) }
   const openEdit = (r: PropertyTypeConfig) => { setEditing(r); form.setFieldsValue(r); setModalOpen(true) }
@@ -28,7 +31,7 @@ export default function PropertyTypePage() {
     setSubmitting(true)
     try {
       if (editing) { await updatePropertyType(editing.id, values); message.success('已更新') }
-      else { await createPropertyType(values); message.success('已创建') }
+      else { await createPropertyType({ project_id: projectId!, ...values }); message.success('已创建') }
       setModalOpen(false)
       await load()
     } catch (e: any) { message.error(e.message) }

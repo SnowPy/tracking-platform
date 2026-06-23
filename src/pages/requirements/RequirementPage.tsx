@@ -16,6 +16,7 @@ import type { Requirement, RequirementStatus, RequirementPriority, ProposedPrope
 import { PLATFORM_OPTIONS } from '../../types'
 import RequirementFormModal from './RequirementFormModal'
 import KanbanColumn from './KanbanColumn'
+import { useProjectStore } from '../../stores/projectStore'
 
 const STATUSES: RequirementStatus[] = ['pending', 'in_progress', 'done', 'rejected']
 const STATUS_LABELS: Record<RequirementStatus, string> = {
@@ -32,6 +33,7 @@ const PRIORITY_TAGS: Record<RequirementPriority, { color: string; label: string 
 
 export default function RequirementPage() {
   const navigate = useNavigate()
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
@@ -46,21 +48,22 @@ export default function RequirementPage() {
 
   // 加载版本列表并默认选最新
   const loadVersions = useCallback(async () => {
+    if (!projectId) return
     try {
-      const versions = await getVersions()
+      const versions = await getVersions(projectId)
       setAllVersions(versions)
       if (versions.length > 0 && !filterVersion) {
         setFilterVersion(versions[0].name) // 默认最新
       }
     } catch { /* ignore */ }
-  }, [])
+  }, [projectId])
 
   useEffect(() => { loadVersions() }, [loadVersions])
 
   const handleAddVersion = async () => {
-    if (!newVersionName.trim()) return
+    if (!newVersionName.trim() || !projectId) return
     try {
-      await createVersion(newVersionName.trim())
+      await createVersion(projectId, newVersionName.trim())
       message.success('版本已添加')
       setNewVersionName('')
       await loadVersions()
@@ -87,16 +90,17 @@ export default function RequirementPage() {
   )
 
   const loadData = useCallback(async () => {
+    if (!projectId) return
     setLoading(true)
     try {
-      const data = await getRequirements()
+      const data = await getRequirements(projectId)
       setRequirements(data)
     } catch (err: any) {
       message.error(err.message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [projectId])
 
   useEffect(() => { loadData() }, [loadData])
 
@@ -111,6 +115,7 @@ export default function RequirementPage() {
           const { data: newEvent, error: createErr } = await supabase
             .from('events')
             .insert({
+              project_id: projectId!,
               name: req.event_name!,
               display_name: req.display_name || req.title,
               description: req.description,
@@ -125,6 +130,7 @@ export default function RequirementPage() {
           if (req.proposed_properties && req.proposed_properties.length > 0) {
             await supabase.from('event_properties').insert(
               req.proposed_properties.map((p: ProposedProperty) => ({
+                project_id: projectId!,
                 event_id: newEvent.id,
                 name: p.name,
                 display_name: p.display_name || p.name,
@@ -160,6 +166,7 @@ export default function RequirementPage() {
                 modifiedCount++
               } else if (p.action === 'add' || !p.action) {
                 await createEventProperty({
+                  project_id: projectId!,
                   event_id: req.event_id, name: p.name,
                   display_name: p.display_name || p.name,
                   type: p.type, description: p.description, required: p.required,
@@ -182,6 +189,7 @@ export default function RequirementPage() {
           const { data: newProp, error: createErr } = await supabase
             .from(tableName)
             .insert({
+              project_id: projectId!,
               name: req.event_name!,
               display_name: req.display_name || req.title,
               type: (req as any).property_type || 'string',
@@ -213,6 +221,7 @@ export default function RequirementPage() {
           const { data: newProp, error: createErr } = await supabase
             .from(tableName)
             .insert({
+              project_id: projectId!,
               name: req.event_name!,
               display_name: req.display_name || req.title,
               type: (req as any).property_type || 'string',
@@ -266,7 +275,7 @@ export default function RequirementPage() {
       await updateRequirement(editingRecord.id, values as any)
       message.success('更新成功')
     } else {
-      await createRequirement(values as any)
+      await createRequirement({ project_id: projectId!, ...values } as any)
       message.success('需求已提交')
     }
     setModalOpen(false)
@@ -543,6 +552,7 @@ export default function RequirementPage() {
 
       <RequirementFormModal
         open={modalOpen}
+        projectId={projectId!}
         editingValues={editingRecord ? {
           title: editingRecord.title,
           display_name: editingRecord.display_name || '',

@@ -9,10 +9,12 @@ import PropertyTable from '../../components/PropertyTable'
 import type { TrackingEvent, EventProperty, EventStatus } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import type { PropertyItem } from '../../components/PropertyTable'
+import { useProjectStore } from '../../stores/projectStore'
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [event, setEvent] = useState<TrackingEvent | null>(null)
   const [properties, setProperties] = useState<EventProperty[]>([])
   const [loading, setLoading] = useState(true)
@@ -144,8 +146,9 @@ export default function EventDetailPage() {
         <PropertyTable
           dataSource={propItems}
           showRequired
+          projectId={projectId!}
           onCreate={async (values) => {
-            await createEventProperty({ event_id: id!, ...values })
+            await createEventProperty({ project_id: projectId!, event_id: id!, ...values })
             await loadData()
           }}
           onUpdate={async (propId, values) => {

@@ -12,6 +12,7 @@ export async function getEventProperties(eventId: string): Promise<EventProperty
 }
 
 export async function createEventProperty(data: {
+  project_id: string
   event_id: string
   name: string
   display_name?: string

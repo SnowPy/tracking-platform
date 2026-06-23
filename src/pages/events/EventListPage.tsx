@@ -9,9 +9,11 @@ import StatusBadge from '../../components/StatusBadge'
 import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import EventFormModal from './EventFormModal'
+import { useProjectStore } from '../../stores/projectStore'
 
 export default function EventListPage() {
   const navigate = useNavigate()
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [total, setTotal] = useState(0)
@@ -22,9 +24,10 @@ export default function EventListPage() {
   const [editingRecord, setEditingRecord] = useState<TrackingEvent | null>(null)
 
   const loadData = useCallback(async () => {
+    if (!projectId) return
     setLoading(true)
     try {
-      const { data, count } = await getEvents({ ...filters, page })
+      const { data, count } = await getEvents({ projectId, ...filters, page })
       setEvents(data)
       setTotal(count)
     } catch (err: any) {
@@ -32,12 +35,14 @@ export default function EventListPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, filters])
+  }, [projectId, page, filters])
 
   useEffect(() => { loadData() }, [loadData])
   useEffect(() => {
-    getCategories().then(setCategories).catch(() => {})
-  }, [])
+    if (projectId) {
+      getCategories(projectId).then(setCategories).catch(() => {})
+    }
+  }, [projectId])
 
   const handleCreate = () => {
     setEditingRecord(null)
@@ -63,7 +68,7 @@ export default function EventListPage() {
       await updateEvent(editingRecord.id, values)
       message.success('更新成功')
     } else {
-      await createEvent(values)
+      await createEvent({ project_id: projectId!, ...values })
       message.success('创建成功')
     }
     setModalOpen(false)
@@ -175,6 +180,7 @@ export default function EventListPage() {
       <EventFormModal
         open={modalOpen}
         editingRecord={editingRecord}
+        projectId={projectId!}
         onSubmit={handleSubmit}
         onCancel={() => setModalOpen(false)}
       />

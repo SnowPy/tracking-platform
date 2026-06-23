@@ -4,6 +4,7 @@ import zhCN from 'antd/locale/zh_CN'
 import { useEffect } from 'react'
 import ErrorBoundary from './components/ErrorBoundary'
 import { useAuthStore } from './stores/authStore'
+import { useProjectStore } from './stores/projectStore'
 import AuthGuard from './components/AuthGuard'
 import MainLayout from './components/MainLayout'
 import LoginPage from './pages/LoginPage'
@@ -19,11 +20,14 @@ import PropertyTypePage from './pages/properties/PropertyTypePage'
 import RequirementDetailPage from './pages/requirements/RequirementDetailPage'
 
 export default function App() {
-  const initialize = useAuthStore((s) => s.initialize)
+  const initializeAuth = useAuthStore((s) => s.initialize)
+  const initializeProject = useProjectStore((s) => s.initialize)
 
   useEffect(() => {
-    initialize()
-  }, [initialize])
+    initializeAuth().then(() => {
+      initializeProject()
+    })
+  }, [initializeAuth, initializeProject])
 
   return (
     <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#1677ff' } }}>

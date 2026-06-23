@@ -3,8 +3,10 @@ import { Card, Button, Modal, Form, Input, TreeSelect, Space, message, Popconfir
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../../api/categories'
 import type { Category } from '../../types'
+import { useProjectStore } from '../../stores/projectStore'
 
 export default function CategoryPage() {
+  const projectId = useProjectStore((s) => s.currentProjectId)
   const [categories, setCategories] = useState<Category[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
@@ -13,9 +15,10 @@ export default function CategoryPage() {
   const [form] = Form.useForm()
 
   const loadCategories = async () => {
+    if (!projectId) return
     setLoading(true)
     try {
-      const data = await getCategories()
+      const data = await getCategories(projectId)
       setCategories(data)
     } catch (err: any) {
       message.error(err.message)
@@ -24,7 +27,7 @@ export default function CategoryPage() {
     }
   }
 
-  useEffect(() => { loadCategories() }, [])
+  useEffect(() => { loadCategories() }, [projectId])
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
@@ -46,7 +49,7 @@ export default function CategoryPage() {
         await updateCategory(editingRecord.id, values)
         message.success('更新成功')
       } else {
-        await createCategory(values)
+        await createCategory({ project_id: projectId!, ...values })
         message.success('创建成功')
       }
       setModalOpen(false)

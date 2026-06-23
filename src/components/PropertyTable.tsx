@@ -36,13 +36,14 @@ interface PropertyTableProps {
   dataSource: PropertyItem[]
   loading?: boolean
   showRequired?: boolean
+  projectId?: string
   onCreate: (values: PropertyCreateValues) => Promise<void>
   onUpdate: (id: string, values: Partial<PropertyCreateValues>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }
 
-export default function PropertyTable({ dataSource, loading, showRequired, onCreate, onUpdate, onDelete }: PropertyTableProps) {
-  const typeOptions = usePropertyTypeOptions()
+export default function PropertyTable({ dataSource, loading, showRequired, projectId, onCreate, onUpdate, onDelete }: PropertyTableProps) {
+  const typeOptions = usePropertyTypeOptions(projectId)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PropertyItem | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -107,7 +108,7 @@ export default function PropertyTable({ dataSource, loading, showRequired, onCre
     },
     {
       title: '类型', dataIndex: 'type', key: 'type', width: 90,
-      render: (type: PropertyType) => <PropertyTypeTag type={type} />,
+      render: (type: PropertyType) => <PropertyTypeTag type={type} projectId={projectId} />,
     },
     { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true,
       render: (text) => text ? <Tooltip title={text}>{text}</Tooltip> : '-',

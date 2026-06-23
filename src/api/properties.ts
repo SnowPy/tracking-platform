@@ -2,16 +2,17 @@ import { supabase } from '../supabase/client'
 
 type PropertyTable = 'user_properties' | 'common_properties'
 
-async function getProperties(table: PropertyTable) {
+async function getProperties(table: PropertyTable, projectId: string) {
   const { data, error } = await supabase
     .from(table)
     .select('*')
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true })
   if (error) throw error
   return data
 }
 
-async function createProperty(table: PropertyTable, data: { name: string; display_name?: string; type: string; description?: string; example_value?: string; platforms?: string[]; notes?: string }) {
+async function createProperty(table: PropertyTable, data: { project_id: string; name: string; display_name?: string; type: string; description?: string; example_value?: string; platforms?: string[]; notes?: string }) {
   const { data: result, error } = await supabase
     .from(table)
     .insert(data)
@@ -38,13 +39,13 @@ async function deleteProperty(table: PropertyTable, id: string) {
 }
 
 // User Properties
-export const getUserProperties = () => getProperties('user_properties')
+export const getUserProperties = (projectId: string) => getProperties('user_properties', projectId)
 export const createUserProperty = (data: Parameters<typeof createProperty>[1]) => createProperty('user_properties', data)
 export const updateUserProperty = (id: string, data: Parameters<typeof updateProperty>[2]) => updateProperty('user_properties', id, data)
 export const deleteUserProperty = (id: string) => deleteProperty('user_properties', id)
 
 // Common Properties
-export const getCommonProperties = () => getProperties('common_properties')
+export const getCommonProperties = (projectId: string) => getProperties('common_properties', projectId)
 export const createCommonProperty = (data: Parameters<typeof createProperty>[1]) => createProperty('common_properties', data)
 export const updateCommonProperty = (id: string, data: Parameters<typeof updateProperty>[2]) => updateProperty('common_properties', id, data)
 export const deleteCommonProperty = (id: string) => deleteProperty('common_properties', id)

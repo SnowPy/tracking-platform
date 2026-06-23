@@ -4,6 +4,7 @@ import type { TrackingEvent } from '../types'
 const PAGE_SIZE = 20
 
 interface EventListParams {
+  projectId: string
   category_id?: string
   status?: string
   search?: string
@@ -19,6 +20,7 @@ export async function getEvents(params: EventListParams): Promise<EventListResul
   let query = supabase
     .from('events')
     .select('*, categories(id, name)', { count: 'exact' })
+    .eq('project_id', params.projectId)
     .order('created_at', { ascending: false })
     .range((params.page - 1) * PAGE_SIZE, params.page * PAGE_SIZE - 1)
 
@@ -48,6 +50,7 @@ export async function getEventById(id: string) {
 }
 
 export async function createEvent(data: {
+  project_id: string
   name: string
   display_name: string
   category_id?: string | null
@@ -91,10 +94,10 @@ export async function deleteEvent(id: string) {
   if (error) throw error
 }
 
-export async function getEventStats() {
-  const { count: total } = await supabase.from('events').select('*', { count: 'exact', head: true })
-  const { count: active } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('status', 'active')
-  const { count: deprecated } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('status', 'deprecated')
+export async function getEventStats(projectId: string) {
+  const { count: total } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId)
+  const { count: active } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'active')
+  const { count: deprecated } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'deprecated')
 
   return {
     total: total ?? 0,
