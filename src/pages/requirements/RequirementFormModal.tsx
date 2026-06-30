@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Typography, Alert } from 'antd'
-import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined, ThunderboltOutlined, LoadingOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Alert } from 'antd'
+import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
@@ -9,9 +9,9 @@ import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Pl
 import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
 import { useAiSuggestName } from '../../hooks/useAiSuggestName'
+import { fetchSuggestedName } from '../../utils/aiSuggest'
 
 const { TextArea } = Input
-const { Text } = Typography
 
 const TRACKING_TYPE_LABEL: Record<TrackingType, string> = {
   event: '事件',
@@ -70,7 +70,8 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   const [propActions, setPropActions] = useState<Record<string, PropertyAction>>({})
   const [propModifications, setPropModifications] = useState<Record<string, Partial<EventProperty>>>({})
   const [newProperties, setNewProperties] = useState<ProposedProperty[]>([])
-  const [checkingName, setCheckingName] = useState(false)
+  const [generatingPropIndex, setGeneratingPropIndex] = useState<number | null>(null)
+  const [generatingModifyId, setGeneratingModifyId] = useState<string | null>(null)
   const [existingVersions, setExistingVersions] = useState<string[]>([])
   const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
   const typeOptions = usePropertyTypeOptions(projectId)
@@ -81,23 +82,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   const aiType = trackingType === 'event' ? 'event' as const
     : trackingType === 'common_property' ? 'common_property' as const
     : 'user_property' as const
-  const aiSuggest = useAiSuggestName({ type: aiType })
-
-  // 显示名变化 → 触发 AI（仅新增模式）
-  useEffect(() => {
-    if (displayName && reqType === 'new') {
-      aiSuggest.trigger(displayName)
-    }
-  }, [displayName, reqType])
-
-  // AI 生成完成 → 写入表单字段
-  useEffect(() => {
-    if (aiSuggest.source === 'ai' && aiSuggest.suggestedName) {
-      const fieldName = trackingType === 'event' ? 'event_name' : 'property_name'
-      form.setFieldsValue({ [fieldName]: aiSuggest.suggestedName })
-      form.validateFields([fieldName]).catch(() => {})
-    }
-  }, [aiSuggest.suggestedName, aiSuggest.source, trackingType, form])
+  const aiSuggest = useAiSuggestName({ type: aiType, debounceMs: 0 })
 
   // 切换类型时重置 AI
   useEffect(() => {
@@ -115,13 +100,8 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   // 异步校验事件名
   const checkEventName = useCallback(async (_: any, value: string) => {
     if (!value || reqType !== 'new' || trackingType !== 'event') return
-    setCheckingName(true)
-    try {
-      const { data } = await supabase.from('events').select('name').eq('project_id', projectId).eq('name', value).maybeSingle()
-      if (data) return Promise.reject(new Error(`事件名「${value}」已存在`))
-    } finally {
-      setCheckingName(false)
-    }
+    const { data } = await supabase.from('events').select('name').eq('project_id', projectId).eq('name', value).maybeSingle()
+    if (data) return Promise.reject(new Error(`事件名「${value}」已存在`))
   }, [reqType, trackingType, projectId])
 
   // 打开模态框时初始化表单（仅依赖 open，避免重复触发）
@@ -333,6 +313,41 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     setNewProperties(prev => prev.filter((_, i) => i !== index))
   }
 
+  // AI 生成单个属性的技术名
+  const handleGeneratePropName = async (index: number) => {
+    const prop = newProperties[index]
+    if (!prop.display_name?.trim()) {
+      message.warning('请先填写该属性的显示名')
+      return
+    }
+    setGeneratingPropIndex(index)
+    try {
+      const name = await fetchSuggestedName(prop.display_name, 'event')
+      updateNewProp(index, 'name', name)
+    } catch (err: any) {
+      message.error(err.message || 'AI 生成失败')
+    } finally {
+      setGeneratingPropIndex(null)
+    }
+  }
+
+  // AI 生成修改模式下已有属性的新名称
+  const handleGenerateModifyName = async (existingId: string, displayName: string) => {
+    if (!displayName?.trim()) {
+      message.warning('请先填写显示名')
+      return
+    }
+    setGeneratingModifyId(existingId)
+    try {
+      const name = await fetchSuggestedName(displayName, 'event')
+      updatePropMod(existingId, 'name', name)
+    } catch (err: any) {
+      message.error(err.message || 'AI 生成失败')
+    } finally {
+      setGeneratingModifyId(null)
+    }
+  }
+
   const handleSubmit = async () => {
     try {
       const values = await form.validateFields()
@@ -414,6 +429,15 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   const isEventType = trackingType === 'event'
   const isNewType = reqType === 'new'
 
+  // AI 流式生成 → 实时写入表单字段
+  useEffect(() => {
+    if (aiSuggest.source === 'ai' && aiSuggest.suggestedName) {
+      const fieldName = isEventType ? 'event_name' : 'property_name'
+      form.setFieldsValue({ [fieldName]: aiSuggest.suggestedName })
+      form.validateFields([fieldName]).catch(() => {})
+    }
+  }, [aiSuggest.suggestedName, aiSuggest.source, isEventType, form])
+
   // 每次打开模态框生成新 key，强制全新渲染避免状态残留
   const [modalKey, setModalKey] = useState(0)
   useEffect(() => {
@@ -481,11 +505,9 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
           label="显示名"
           rules={[{ required: true, message: '请输入显示名' }]}
           extra={
-            <span>
-              {autoTitle(form.getFieldValue('display_name') || '') ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}` : ''}
-              {aiSuggest.isLoading && <span style={{ marginLeft: 8, color: '#4f46e5' }}><LoadingOutlined spin /> AI 正在生成建议名...</span>}
-              {aiSuggest.error && <span style={{ marginLeft: 8, color: '#ff4d4f' }}>AI 不可用，请手动输入</span>}
-            </span>
+            autoTitle(form.getFieldValue('display_name') || '')
+              ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}`
+              : undefined
           }
         >
           <Input placeholder="如：商品点击、用户等级、会员类型" />
@@ -504,31 +526,26 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                   { validator: checkEventName },
                 ]}
                 validateTrigger="onBlur"
-                extra={
-                  // AI 建议交互提示
-                  aiSuggest.source === 'ai' && aiSuggest.suggestedName ? (
-                    <Space size={4} style={{ marginTop: 4 }}>
-                      <Tag color="processing" icon={<ThunderboltOutlined />}>AI 建议</Tag>
-                      <Button size="small" type="primary" icon={<CheckOutlined />}
-                        onClick={() => aiSuggest.accept()}>采纳</Button>
-                      <Button size="small" icon={<EditOutlined />}
-                        onClick={() => { aiSuggest.markManual(aiSuggest.suggestedName) }}>修改</Button>
-                    </Space>
-                  ) : aiSuggest.source === 'manual' && aiSuggest.pendingSuggestion ? (
-                    <Space size={4} style={{ marginTop: 4 }}>
-                      <Text type="secondary" style={{ fontSize: 12 }}>💡 AI 建议: <code>{aiSuggest.pendingSuggestion}</code></Text>
-                      <Button size="small" type="link"
-                        onClick={() => {
-                          form.setFieldValue('event_name', aiSuggest.pendingSuggestion)
-                          aiSuggest.accept()
-                        }}>替换</Button>
-                    </Space>
-                  ) : null
-                }
               >
                 <Input
                   placeholder="如 product_detail_view"
-                  suffix={checkingName ? '校验中...' : null}
+                  suffix={
+                    <ThunderboltOutlined
+                      spin={aiSuggest.isLoading}
+                      onClick={() => {
+                        const dn = displayName || form.getFieldValue('display_name')
+                        if (!dn?.trim()) { message.warning('请先填写显示名'); return }
+                        aiSuggest.trigger(dn)
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: aiSuggest.isLoading ? '#4f46e5' : '#bfbfbf',
+                        fontSize: 14,
+                        transition: 'color 0.2s',
+                      }}
+                      title="AI 生成事件名"
+                    />
+                  }
                   style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
                   onChange={(e) => {
                     if (e.target.value) aiSuggest.markManual(e.target.value)
@@ -568,29 +585,26 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                     { required: true, message: '请输入属性名' },
                     { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
                   ]}
-                  extra={
-                    aiSuggest.source === 'ai' && aiSuggest.suggestedName ? (
-                      <Space size={4} style={{ marginTop: 4 }}>
-                        <Tag color="processing" icon={<ThunderboltOutlined />}>AI 建议</Tag>
-                        <Button size="small" type="primary" icon={<CheckOutlined />}
-                          onClick={() => aiSuggest.accept()}>采纳</Button>
-                        <Button size="small" icon={<EditOutlined />}
-                          onClick={() => { aiSuggest.markManual(aiSuggest.suggestedName) }}>修改</Button>
-                      </Space>
-                    ) : aiSuggest.source === 'manual' && aiSuggest.pendingSuggestion ? (
-                      <Space size={4} style={{ marginTop: 4 }}>
-                        <Text type="secondary" style={{ fontSize: 12 }}>💡 AI 建议: <code>{aiSuggest.pendingSuggestion}</code></Text>
-                        <Button size="small" type="link"
-                          onClick={() => {
-                            form.setFieldValue('property_name', aiSuggest.pendingSuggestion)
-                            aiSuggest.accept()
-                          }}>替换</Button>
-                      </Space>
-                    ) : null
-                  }
                 >
                   <Input
                     placeholder="如 user_level, login_count"
+                    suffix={
+                      <ThunderboltOutlined
+                        spin={aiSuggest.isLoading}
+                        onClick={() => {
+                          const dn = displayName || form.getFieldValue('display_name')
+                          if (!dn?.trim()) { message.warning('请先填写显示名'); return }
+                          aiSuggest.trigger(dn)
+                        }}
+                        style={{
+                          cursor: 'pointer',
+                          color: aiSuggest.isLoading ? '#4f46e5' : '#bfbfbf',
+                          fontSize: 14,
+                          transition: 'color 0.2s',
+                        }}
+                        title="AI 生成属性名"
+                      />
+                    }
                     style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
                     onChange={(e) => {
                       if (e.target.value) aiSuggest.markManual(e.target.value)
@@ -727,7 +741,21 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                     <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff', borderRadius: 4, border: '1px dashed #faad14' }}>
                       <Space wrap size={[8, 4]}>
                         <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>属性名</span>
+                          <span style={{ fontSize: 11, color: '#999' }}>
+                            属性名
+                            <ThunderboltOutlined
+                              spin={generatingModifyId === ep.id}
+                              onClick={() => handleGenerateModifyName(ep.id, (mod as any)?.display_name || ep.display_name || ep.name)}
+                              style={{
+                                cursor: generatingModifyId === ep.id ? 'wait' : 'pointer',
+                                color: generatingModifyId === ep.id ? '#4f46e5' : '#bfbfbf',
+                                fontSize: 11,
+                                marginLeft: 4,
+                                transition: 'color 0.2s',
+                              }}
+                              title="AI 生成属性名"
+                            />
+                          </span>
                           <Input size="small" style={{ width: 100 }} value={mod?.name || ''}
                             onChange={e => updatePropMod(ep.id, 'name', e.target.value)} />
                         </div>
@@ -769,7 +797,21 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
             {newProperties.map((prop, idx) => (
               <Space key={idx} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
                 <Input placeholder="属性名" style={{ width: 100 }} value={prop.name}
-                  onChange={e => updateNewProp(idx, 'name', e.target.value)} />
+                  onChange={e => updateNewProp(idx, 'name', e.target.value)}
+                  suffix={
+                    <ThunderboltOutlined
+                      spin={generatingPropIndex === idx}
+                      onClick={(e) => { e.stopPropagation(); handleGeneratePropName(idx) }}
+                      style={{
+                        cursor: generatingPropIndex === idx ? 'wait' : 'pointer',
+                        color: generatingPropIndex === idx ? '#4f46e5' : '#bfbfbf',
+                        fontSize: 12,
+                        transition: 'color 0.2s',
+                      }}
+                      title="AI 生成属性名"
+                    />
+                  }
+                />
                 <Input placeholder="显示名" style={{ width: 100 }} value={prop.display_name || ''}
                   onChange={e => updateNewProp(idx, 'display_name', e.target.value)} />
                 <Select style={{ width: 90 }} value={prop.type}
