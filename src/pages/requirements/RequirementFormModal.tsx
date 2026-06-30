@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Typography } from 'antd'
+import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Typography, Alert } from 'antd'
 import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined, ThunderboltOutlined, LoadingOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
 import { supabase } from '../../supabase/client'
-import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType } from '../../types'
+import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType, Requirement } from '../../types'
 import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
 import { useAiSuggestName } from '../../hooks/useAiSuggestName'
@@ -41,6 +41,7 @@ interface RequirementFormModalProps {
     platforms?: Platform[]
     trigger_timing?: string | null
   } | null
+  copyFrom?: Requirement | null
   onSubmit: (values: {
     title: string
     display_name?: string
@@ -58,7 +59,7 @@ interface RequirementFormModalProps {
   onCancel: () => void
 }
 
-export default function RequirementFormModal({ open, projectId, editingValues, onSubmit, onCancel }: RequirementFormModalProps) {
+export default function RequirementFormModal({ open, projectId, editingValues, copyFrom, onSubmit, onCancel }: RequirementFormModalProps) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
   const [trackingType, setTrackingType] = useState<TrackingType>('event')
@@ -73,6 +74,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
   const [existingVersions, setExistingVersions] = useState<string[]>([])
   const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
   const typeOptions = usePropertyTypeOptions(projectId)
+  const isCopyMode = !!copyFrom
 
   // ─── AI 建议事件名/属性名 ──────────────────────────
   const displayName = Form.useWatch('display_name', form)
@@ -128,7 +130,77 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
     getEvents({ projectId, page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
     getVersions(projectId).then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
 
-    if (editingValues) {
+    if (copyFrom) {
+      // ─── 复制模式：预填源需求的所有业务字段 ───
+      const copyTrackingType = (copyFrom.tracking_type as TrackingType) || 'event'
+      const copyReqType = (copyFrom.modification_type as RequirementType) || 'new'
+      if (copyTrackingType !== 'event') loadExistingPropList(copyTrackingType)
+      setTrackingType(copyTrackingType)
+      setReqType(copyReqType)
+      setExistingProperties([])
+      setPropActions({})
+      setPropModifications({})
+      setNewProperties([])
+      setExistingPropList([])
+
+      // 处理 event_name：new 模式下加 _copy 后缀避免唯一约束冲突
+      let copyEventName = copyFrom.event_name || ''
+      if (copyReqType === 'new' && copyEventName) {
+        copyEventName = copyEventName + '_copy'
+      }
+
+      // 构建预填值
+      const prefillValues: Record<string, any> = {
+        display_name: copyFrom.display_name || '',
+        modification_type: copyReqType,
+        description: copyFrom.description || '',
+        priority: copyFrom.priority || 'medium',
+        version: copyFrom.version || undefined,
+        platforms: copyFrom.platforms || [],
+        trigger_timing: copyFrom.trigger_timing || '',
+      }
+
+      if (copyTrackingType === 'event') {
+        if (copyReqType === 'new') {
+          prefillValues.event_name = copyEventName
+          prefillValues.event_id = null
+        } else {
+          setSelectedEventId(copyFrom.event_id || null)
+          prefillValues.event_id = copyFrom.event_id || undefined
+          prefillValues.event_name = copyFrom.event_name || ''
+          if (copyFrom.event_id) loadExistingProperties(copyFrom.event_id, false)
+        }
+      } else {
+        // 公共属性 / 用户属性
+        if (copyReqType === 'new') {
+          prefillValues.property_name = copyEventName
+        } else {
+          setSelectedEventId(copyFrom.event_id || null)
+          prefillValues.property_name = copyFrom.event_id || undefined
+          prefillValues.event_name = copyFrom.event_name || ''
+        }
+      }
+
+      // 恢复 proposed_properties
+      if (copyFrom.proposed_properties) {
+        setNewProperties(copyFrom.proposed_properties.filter(p => p.action !== 'modify' && p.action !== 'delete'))
+        const actions: Record<string, PropertyAction> = {}
+        const mods: Record<string, Partial<EventProperty>> = {}
+        copyFrom.proposed_properties.forEach(p => {
+          if (p.existing_id && p.action) actions[p.existing_id] = p.action
+          if (p.existing_id && p.action === 'modify') mods[p.existing_id] = {
+            name: p.name, display_name: p.display_name, type: p.type as any,
+            description: p.description, required: p.required,
+          }
+        })
+        setPropActions(actions)
+        setPropModifications(mods)
+      }
+
+      setTimeout(() => {
+        form.setFieldsValue(prefillValues)
+      }, 0)
+    } else if (editingValues) {
       const editTrackingType = (editingValues.tracking_type as TrackingType) || 'event'
       if (editTrackingType !== 'event') loadExistingPropList(editTrackingType)
       setTrackingType((editingValues.tracking_type as TrackingType) || 'event')
@@ -351,7 +423,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
   return (
     <Modal
       key={modalKey}
-      title={editingValues ? '编辑需求' : '提交埋点需求'}
+      title={isCopyMode ? '复制需求' : editingValues ? '编辑需求' : '提交埋点需求'}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
@@ -362,6 +434,27 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}
         onValuesChange={handleFormValuesChange}
       >
+        {/* 复制模式提示横幅 */}
+        {isCopyMode && (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="复制模式"
+            description={
+              <div style={{ fontSize: 13 }}>
+                以需求「<strong>{copyFrom!.title}</strong>」为模板创建新需求。业务配置已预填，你可以自由修改任何字段。
+                <ul style={{ margin: '4px 0 0 0', paddingLeft: 20 }}>
+                  {(copyFrom!.modification_type === 'new' && copyFrom!.event_name) && (
+                    <li>事件名/属性名已自动追加 <code>_copy</code> 后缀以避免冲突</li>
+                  )}
+                  <li>提交人将设为你，状态重置为「待处理」</li>
+                  <li>建议修改<strong>显示名</strong>和<strong>版本号</strong>以区分原需求</li>
+                </ul>
+              </div>
+            }
+          />
+        )}
         {/* 埋点类型 — 事件 / 公共属性 / 用户属性 */}
         <Form.Item label="埋点类型" rules={[{ required: true }]}>
           <Radio.Group

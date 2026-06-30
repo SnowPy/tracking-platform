@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, Button, Table, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
-import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
 import {
   DndContext, closestCorners, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from '@dnd-kit/core'
@@ -35,11 +35,13 @@ const PRIORITY_TAGS: Record<RequirementPriority, { color: string; label: string 
 export default function RequirementPage() {
   const navigate = useNavigate()
   const projectId = useProjectStore((s) => s.currentProjectId)
+  const [searchParams, setSearchParams] = useSearchParams()
   const [requirements, setRequirements] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<Requirement | null>(null)
+  const [copyFromRecord, setCopyFromRecord] = useState<Requirement | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [filterPlatform, setFilterPlatform] = useState<Platform | undefined>()
   const [filterVersion, setFilterVersion] = useState<string | undefined>()
@@ -104,6 +106,23 @@ export default function RequirementPage() {
   }, [projectId])
 
   useEffect(() => { loadData() }, [loadData])
+
+  // 检测 URL 参数 ?copy=:id（从详情页跳转过来）
+  useEffect(() => {
+    const copyId = searchParams.get('copy')
+    if (copyId && requirements.length > 0) {
+      const record = requirements.find((r) => r.id === copyId)
+      if (record) {
+        setCopyFromRecord(record)
+        setEditingRecord(null)
+        setModalOpen(true)
+        // 清除 URL 参数
+        const next = new URLSearchParams(searchParams)
+        next.delete('copy')
+        setSearchParams(next, { replace: true })
+      }
+    }
+  }, [searchParams, requirements])
 
   // 需求完成时自动同步
   const syncRequirement = async (req: Requirement) => {
@@ -277,9 +296,10 @@ export default function RequirementPage() {
       message.success('更新成功')
     } else {
       await createRequirement({ project_id: projectId!, ...values } as any)
-      message.success('需求已提交')
+      message.success(copyFromRecord ? '复制成功' : '需求已提交')
     }
     setModalOpen(false)
+    setCopyFromRecord(null)
     await loadData()
     loadVersions()
   }
@@ -425,7 +445,8 @@ export default function RequirementPage() {
         const menuItems = {
           items: [
             ...(record.status !== 'done' ? [{ key: 'done', icon: <CheckOutlined />, label: '标记完成', onClick: (e: any) => { e.domEvent.stopPropagation(); handleMarkDone(record) } }] : []),
-            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); setEditingRecord(record); setModalOpen(true) } },
+            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); setEditingRecord(record); setCopyFromRecord(null); setModalOpen(true) } },
+            { key: 'copy', icon: <CopyOutlined />, label: '复制', onClick: (e: any) => { e.domEvent.stopPropagation(); setCopyFromRecord(record); setEditingRecord(null); setModalOpen(true) } },
             { type: 'divider' as const },
             {
               key: 'delete',
@@ -510,9 +531,10 @@ export default function RequirementPage() {
                 label={STATUS_LABELS[status]}
                 items={kanbanData[status]}
                 count={kanbanData[status].length}
-                onEdit={(record) => { setEditingRecord(record); setModalOpen(true) }}
+                onEdit={(record) => { setEditingRecord(record); setCopyFromRecord(null); setModalOpen(true) }}
                 onDelete={handleDelete}
                 onMarkDone={handleMarkDone}
+                onCopy={(record) => { setCopyFromRecord(record); setEditingRecord(null); setModalOpen(true) }}
               />
             ))}
           </div>
@@ -588,8 +610,9 @@ export default function RequirementPage() {
           platforms: editingRecord.platforms,
           trigger_timing: editingRecord.trigger_timing,
         } : null}
+        copyFrom={copyFromRecord}
         onSubmit={handleSubmit}
-        onCancel={() => { setModalOpen(false); setEditingRecord(null) }}
+        onCancel={() => { setModalOpen(false); setEditingRecord(null); setCopyFromRecord(null) }}
       />
     </div>
   )

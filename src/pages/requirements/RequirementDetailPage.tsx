@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, Descriptions, Button, Tag, Space, Table, Typography, message, Popconfirm, Modal, Input } from 'antd'
-import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, CheckOutlined, UserOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, CheckOutlined, UserOutlined, CopyOutlined } from '@ant-design/icons'
 import { supabase } from '../../supabase/client'
 import { getRequirements, updateRequirement, deleteRequirement } from '../../api/requirements'
 import { createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
@@ -203,6 +203,7 @@ export default function RequirementDetailPage() {
                     完成并同步
                   </Button>
                 )}
+                <Button icon={<CopyOutlined />} onClick={() => navigate(`/requirements?copy=${req.id}`)}>复制</Button>
                 <Button icon={<EditOutlined />} onClick={() => { navigate('/requirements'); /* trigger edit */ }}>编辑</Button>
                 <Popconfirm title="确定删除？" onConfirm={handleDelete}>
                   <Button danger icon={<DeleteOutlined />} />

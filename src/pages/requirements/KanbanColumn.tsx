@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { Card, Tag, Button, Space, Popconfirm, Typography } from 'antd'
-import { EditOutlined, DeleteOutlined, UserOutlined, CheckOutlined } from '@ant-design/icons'
+import { EditOutlined, DeleteOutlined, UserOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
 import { useDroppable, useDraggable } from '@dnd-kit/core'
 import type { Requirement, RequirementStatus, RequirementPriority } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
@@ -20,11 +20,12 @@ const PRIORITY_TAGS: Record<RequirementPriority, { color: string; label: string 
   low: { color: 'default', label: '低' },
 }
 
-function DraggableCard({ item, onEdit, onDelete, onMarkDone }: {
+function DraggableCard({ item, onEdit, onDelete, onMarkDone, onCopy }: {
   item: Requirement
   onEdit: (item: Requirement) => void
   onDelete: (id: string) => void
   onMarkDone: (item: Requirement) => void
+  onCopy: (item: Requirement) => void
 }) {
   const navigate = useNavigate()
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id })
@@ -87,6 +88,9 @@ function DraggableCard({ item, onEdit, onDelete, onMarkDone }: {
                 onClick={(e) => { e.stopPropagation(); onMarkDone(item) }}
               />
             )}
+            <Button type="link" size="small" icon={<CopyOutlined />}
+              onClick={(e) => { e.stopPropagation(); onCopy(item) }}
+              title="复制" />
             <Button type="link" size="small" icon={<EditOutlined />}
               onClick={(e) => { e.stopPropagation(); onEdit(item) }} />
             <Popconfirm title="确定删除？" onConfirm={() => onDelete(item.id)}>
@@ -108,9 +112,10 @@ interface KanbanColumnProps {
   onEdit: (item: Requirement) => void
   onDelete: (id: string) => void
   onMarkDone: (item: Requirement) => void
+  onCopy: (item: Requirement) => void
 }
 
-export default function KanbanColumn({ status, label, items, count, onEdit, onDelete, onMarkDone }: KanbanColumnProps) {
+export default function KanbanColumn({ status, label, items, count, onEdit, onDelete, onMarkDone, onCopy }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
 
   return (
@@ -147,7 +152,7 @@ export default function KanbanColumn({ status, label, items, count, onEdit, onDe
       </div>
       <div style={{ maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
         {items.map((item) => (
-          <DraggableCard key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onMarkDone={onMarkDone} />
+          <DraggableCard key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onMarkDone={onMarkDone} onCopy={onCopy} />
         ))}
         {items.length === 0 && (
           <div style={{

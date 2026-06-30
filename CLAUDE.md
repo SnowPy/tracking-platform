@@ -81,3 +81,5 @@ GitHub Actions on push/PR to `master`: lint → build → test (`npx vitest run`
 3. Create the page component in `src/pages/<domain>/`
 4. Wire the route in `src/App.tsx`
 5. If it needs global state, add a Zustand store in `src/stores/`
+
+每次需要先在本地测试，等我确定没有问题后，再同步到生产环境
