@@ -21,16 +21,25 @@ import RequirementDetailPage from './pages/requirements/RequirementDetailPage'
 
 export default function App() {
   const initializeAuth = useAuthStore((s) => s.initialize)
+  const session = useAuthStore((s) => s.session)
   const initializeProject = useProjectStore((s) => s.initialize)
 
+  // 页面首次加载时初始化 auth 和 project
   useEffect(() => {
     initializeAuth().then(() => {
       initializeProject()
     })
   }, [initializeAuth, initializeProject])
 
+  // 登录成功后（session 从无到有）重新初始化项目数据
+  useEffect(() => {
+    if (session) {
+      initializeProject()
+    }
+  }, [session, initializeProject])
+
   return (
-    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#1677ff' } }}>
+    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#4f46e5', borderRadius: 6 } }}>
       <AntApp>
         <BrowserRouter>
           <ErrorBoundary>

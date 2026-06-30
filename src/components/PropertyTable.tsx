@@ -5,6 +5,7 @@ import type { ColumnsType } from 'antd/es/table'
 import type { PropertyType, Platform } from '../types'
 import { PLATFORM_OPTIONS } from '../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from './PropertyTypeTag'
+import EmptyState from './EmptyState'
 
 const { TextArea } = Input
 
@@ -159,7 +160,7 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
         loading={loading}
         pagination={false}
         size="middle"
-        locale={{ emptyText: '暂无属性，点击上方按钮添加' }}
+        locale={{ emptyText: <EmptyState scene="no_data" itemName="属性" onAction={handleOpenCreate} actionLabel="添加属性" /> }}
       />
       <Modal
         title={editingRecord ? '编辑属性' : '添加属性'}

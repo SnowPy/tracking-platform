@@ -4,6 +4,6 @@
   "devCommand": "npm run dev",
   "framework": "vite",
   "rewrites": [
-    { "source": "/((?!favicon\\.svg|icons\\.svg|assets/).*)", "destination": "/index.html" }
+    { "source": "/((?!api/|favicon\\.svg|icons\\.svg|assets/).*)", "destination": "/index.html" }
   ]
 }

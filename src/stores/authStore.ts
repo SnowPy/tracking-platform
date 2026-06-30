@@ -57,6 +57,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   signOut: async () => {
     await supabase.auth.signOut()
     set({ session: null, user: null, profile: null })
+    // 清理项目选择记录，避免下个用户看到上个人的项目状态
+    localStorage.removeItem('current_project_id')
   },
 
   initialize: async () => {

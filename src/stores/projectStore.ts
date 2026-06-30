@@ -22,8 +22,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     try {
       const projects = await getProjects()
       set({ projects })
-    } catch {
-      // 静默处理
+    } catch (err) {
+      console.error('加载项目列表失败:', err)
     }
   },
 

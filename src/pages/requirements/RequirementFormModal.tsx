@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch } from 'antd'
-import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Typography } from 'antd'
+import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined, ThunderboltOutlined, LoadingOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
@@ -8,8 +8,10 @@ import { supabase } from '../../supabase/client'
 import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType } from '../../types'
 import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
+import { useAiSuggestName } from '../../hooks/useAiSuggestName'
 
 const { TextArea } = Input
+const { Text } = Typography
 
 const TRACKING_TYPE_LABEL: Record<TrackingType, string> = {
   event: '事件',
@@ -72,7 +74,35 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
   const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
   const typeOptions = usePropertyTypeOptions(projectId)
 
-  // 标题自动生成
+  // ─── AI 建议事件名/属性名 ──────────────────────────
+  const displayName = Form.useWatch('display_name', form)
+  const aiType = trackingType === 'event' ? 'event' as const
+    : trackingType === 'common_property' ? 'common_property' as const
+    : 'user_property' as const
+  const aiSuggest = useAiSuggestName({ type: aiType })
+
+  // 显示名变化 → 触发 AI（仅新增模式）
+  useEffect(() => {
+    if (displayName && reqType === 'new') {
+      aiSuggest.trigger(displayName)
+    }
+  }, [displayName, reqType])
+
+  // AI 生成完成 → 写入表单字段
+  useEffect(() => {
+    if (aiSuggest.source === 'ai' && aiSuggest.suggestedName) {
+      const fieldName = trackingType === 'event' ? 'event_name' : 'property_name'
+      form.setFieldsValue({ [fieldName]: aiSuggest.suggestedName })
+      form.validateFields([fieldName]).catch(() => {})
+    }
+  }, [aiSuggest.suggestedName, aiSuggest.source, trackingType, form])
+
+  // 切换类型时重置 AI
+  useEffect(() => {
+    aiSuggest.reset()
+  }, [trackingType])
+
+  // ─── 标题自动生成 ──────────────────────────────────
   const autoTitle = useCallback((displayName: string) => {
     if (!displayName) return ''
     const modLabel = REQUIREMENT_TYPE_LABEL[reqType]
@@ -155,7 +185,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
         setPropActions({})
         setPropModifications({})
       }
-    } catch { message.error('加载事件属性失败') }
+    } catch (err) { console.error('加载事件属性失败:', err); message.error('加载事件属性失败') }
   }
 
   // 加载已有属性列表（公共属性/用户属性修改模式）
@@ -165,7 +195,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
     try {
       const { data } = await supabase.from(table).select('id, name, display_name').eq('project_id', projectId).order('name')
       setExistingPropList((data || []) as any[])
-    } catch { /* ignore */ }
+    } catch (err) { console.error('加载已有属性列表失败:', err) }
   }
 
   // 切换埋点类型 — 重置整个表单为新页面
@@ -352,12 +382,18 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
           </Radio.Group>
         </Form.Item>
 
-        {/* 显示名 — 用于自动生成标题 */}
+        {/* 显示名 — 输入后 AI 自动推荐技术名 */}
         <Form.Item
           name="display_name"
           label="显示名"
           rules={[{ required: true, message: '请输入显示名' }]}
-          extra={autoTitle(form.getFieldValue('display_name') || '') ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}` : ''}
+          extra={
+            <span>
+              {autoTitle(form.getFieldValue('display_name') || '') ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}` : ''}
+              {aiSuggest.isLoading && <span style={{ marginLeft: 8, color: '#4f46e5' }}><LoadingOutlined spin /> AI 正在生成建议名...</span>}
+              {aiSuggest.error && <span style={{ marginLeft: 8, color: '#ff4d4f' }}>AI 不可用，请手动输入</span>}
+            </span>
+          }
         >
           <Input placeholder="如：商品点击、用户等级、会员类型" />
         </Form.Item>
@@ -368,15 +404,43 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
             {isNewType ? (
               <Form.Item
                 name="event_name"
-                label="建议事件名"
+                label="事件名"
                 rules={[
-                  { required: true, message: '请输入建议事件名' },
+                  { required: true, message: '请输入事件名' },
                   { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
                   { validator: checkEventName },
                 ]}
                 validateTrigger="onBlur"
+                extra={
+                  // AI 建议交互提示
+                  aiSuggest.source === 'ai' && aiSuggest.suggestedName ? (
+                    <Space size={4} style={{ marginTop: 4 }}>
+                      <Tag color="processing" icon={<ThunderboltOutlined />}>AI 建议</Tag>
+                      <Button size="small" type="primary" icon={<CheckOutlined />}
+                        onClick={() => aiSuggest.accept()}>采纳</Button>
+                      <Button size="small" icon={<EditOutlined />}
+                        onClick={() => { aiSuggest.markManual(aiSuggest.suggestedName) }}>修改</Button>
+                    </Space>
+                  ) : aiSuggest.source === 'manual' && aiSuggest.pendingSuggestion ? (
+                    <Space size={4} style={{ marginTop: 4 }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>💡 AI 建议: <code>{aiSuggest.pendingSuggestion}</code></Text>
+                      <Button size="small" type="link"
+                        onClick={() => {
+                          form.setFieldValue('event_name', aiSuggest.pendingSuggestion)
+                          aiSuggest.accept()
+                        }}>替换</Button>
+                    </Space>
+                  ) : null
+                }
               >
-                <Input placeholder="如 product_detail_view" suffix={checkingName ? '校验中...' : null} />
+                <Input
+                  placeholder="如 product_detail_view"
+                  suffix={checkingName ? '校验中...' : null}
+                  style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
+                  onChange={(e) => {
+                    if (e.target.value) aiSuggest.markManual(e.target.value)
+                  }}
+                />
               </Form.Item>
             ) : (
               <Form.Item name="event_id" label="选择事件" rules={[{ required: true, message: '请选择要修改的事件' }]}>
@@ -411,8 +475,34 @@ export default function RequirementFormModal({ open, projectId, editingValues, o
                     { required: true, message: '请输入属性名' },
                     { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
                   ]}
+                  extra={
+                    aiSuggest.source === 'ai' && aiSuggest.suggestedName ? (
+                      <Space size={4} style={{ marginTop: 4 }}>
+                        <Tag color="processing" icon={<ThunderboltOutlined />}>AI 建议</Tag>
+                        <Button size="small" type="primary" icon={<CheckOutlined />}
+                          onClick={() => aiSuggest.accept()}>采纳</Button>
+                        <Button size="small" icon={<EditOutlined />}
+                          onClick={() => { aiSuggest.markManual(aiSuggest.suggestedName) }}>修改</Button>
+                      </Space>
+                    ) : aiSuggest.source === 'manual' && aiSuggest.pendingSuggestion ? (
+                      <Space size={4} style={{ marginTop: 4 }}>
+                        <Text type="secondary" style={{ fontSize: 12 }}>💡 AI 建议: <code>{aiSuggest.pendingSuggestion}</code></Text>
+                        <Button size="small" type="link"
+                          onClick={() => {
+                            form.setFieldValue('property_name', aiSuggest.pendingSuggestion)
+                            aiSuggest.accept()
+                          }}>替换</Button>
+                      </Space>
+                    ) : null
+                  }
                 >
-                  <Input placeholder="如 user_level, login_count" />
+                  <Input
+                    placeholder="如 user_level, login_count"
+                    style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
+                    onChange={(e) => {
+                      if (e.target.value) aiSuggest.markManual(e.target.value)
+                    }}
+                  />
                 </Form.Item>
                 <Form.Item name="property_type" label="属性类型" initialValue="string">
                   <Select options={typeOptions} />

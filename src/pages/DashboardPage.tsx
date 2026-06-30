@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Space, List, Tag, Typography, theme } from 'antd'
+import { Row, Col, Card, Statistic, Space, List, Tag, Typography, theme, message } from 'antd'
 import {
   ThunderboltOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   FileTextOutlined, RightOutlined,
@@ -9,6 +9,7 @@ import { getEventStats, getEvents } from '../api/events'
 import { getRequirements } from '../api/requirements'
 import type { TrackingEvent, Requirement } from '../types'
 import StatusBadge from '../components/StatusBadge'
+import EmptyState from '../components/EmptyState'
 import { useProjectStore } from '../stores/projectStore'
 
 const { Text } = Typography
@@ -34,8 +35,9 @@ export default function DashboardPage() {
         setStats(eventStats)
         setRecentEvents(events)
         setPendingReqs(reqs.filter((r) => r.status === 'pending' || r.status === 'in_progress').slice(0, 5))
-      } catch {
-        // 静默处理
+      } catch (err) {
+        message.error('加载仪表盘数据失败，请刷新页面重试')
+        console.error('Dashboard load error:', err)
       } finally {
         setLoading(false)
       }
@@ -103,7 +105,7 @@ export default function DashboardPage() {
             extra={<a onClick={() => navigate('/events')}>全部 <RightOutlined /></a>}
           >
             {recentEvents.length === 0 ? (
-              <Text type="secondary">暂无事件，点击右上角创建</Text>
+              <EmptyState scene="no_data" itemName="事件" onAction={() => navigate('/events')} actionLabel="前往创建" />
             ) : (
               <List
                 dataSource={recentEvents}
@@ -137,7 +139,7 @@ export default function DashboardPage() {
             extra={<a onClick={() => navigate('/requirements')}>全部 <RightOutlined /></a>}
           >
             {pendingReqs.length === 0 ? (
-              <Text type="secondary">暂无待处理需求</Text>
+              <EmptyState scene="no_data" itemName="待处理需求" onAction={() => navigate('/requirements')} actionLabel="提交需求" />
             ) : (
               <List
                 dataSource={pendingReqs}

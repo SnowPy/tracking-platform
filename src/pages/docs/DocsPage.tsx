@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Card, Button, Table, Tabs, Typography, Space, message, Collapse, Tag } from 'antd'
 import { FileExcelOutlined, FileMarkdownOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
@@ -6,11 +7,13 @@ import { getEventProperties } from '../../api/eventProperties'
 import type { TrackingEvent, EventProperty } from '../../types'
 import StatusBadge from '../../components/StatusBadge'
 import PropertyTypeTag from '../../components/PropertyTypeTag'
+import EmptyState from '../../components/EmptyState'
 import { useProjectStore } from '../../stores/projectStore'
 
 const { Title, Paragraph, Text } = Typography
 
 export default function DocsPage() {
+  const navigate = useNavigate()
   const projectId = useProjectStore((s) => s.currentProjectId)
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [propertiesMap, setPropertiesMap] = useState<Record<string, EventProperty[]>>({})
@@ -26,12 +29,13 @@ export default function DocsPage() {
         const map: Record<string, EventProperty[]> = {}
         await Promise.all(
           data.map(async (e) => {
-            try { map[e.id] = await getEventProperties(e.id) } catch { map[e.id] = [] }
+            try { map[e.id] = await getEventProperties(e.id) } catch { console.warn(`加载事件 ${e.id} 属性失败`); map[e.id] = [] }
           })
         )
         setPropertiesMap(map)
-      } catch {
-        message.error('加载失败')
+      } catch (err) {
+        message.error('加载埋点字典失败，请刷新重试')
+        console.error('Docs load error:', err)
       } finally {
         setLoading(false)
       }
@@ -109,7 +113,7 @@ export default function DocsPage() {
       {loading ? (
         <Text type="secondary">加载中...</Text>
       ) : events.length === 0 ? (
-        <Text type="secondary">暂无启用的埋点事件</Text>
+        <EmptyState scene="no_data" itemName="埋点事件" onAction={() => navigate('/events')} actionLabel="创建事件" />
       ) : (
         <Collapse
           size="small"

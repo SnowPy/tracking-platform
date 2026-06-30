@@ -1,4 +1,4 @@
-/* 全局样式重置 */
+/* 全局样式 */
 * {
   margin: 0;
   padding: 0;
@@ -13,4 +13,23 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+/* 统一 code 标签样式 */
+code {
+  background: #f5f5f5;
+  color: #4f46e5;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace;
+}
+
+/* 卡片 hover 过渡动效 */
+.ant-card-hoverable {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.ant-card-hoverable:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(79, 70, 229, 0.10) !important;
 }

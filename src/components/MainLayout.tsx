@@ -20,14 +20,32 @@ import { useProjectStore } from '../stores/projectStore'
 const { Header, Sider, Content } = Layout
 
 const menuItems = [
-  { key: '/', icon: <DashboardOutlined />, label: '总览' },
-  { key: '/events', icon: <ThunderboltOutlined />, label: '事件管理' },
-  { key: '/categories', icon: <AppstoreOutlined />, label: '事件分类' },
-  { key: '/user-properties', icon: <UserOutlined />, label: '用户属性' },
-  { key: '/common-properties', icon: <GlobalOutlined />, label: '公共属性' },
-  { key: '/requirements', icon: <FileTextOutlined />, label: '埋点需求' },
-  { key: '/property-types', icon: <TagOutlined />, label: '属性类型' },
-  { key: '/docs', icon: <BookOutlined />, label: '埋点文档' },
+  {
+    type: 'group' as const,
+    label: '核心管理',
+    children: [
+      { key: '/', icon: <DashboardOutlined />, label: '总览' },
+      { key: '/events', icon: <ThunderboltOutlined />, label: '事件管理' },
+      { key: '/categories', icon: <AppstoreOutlined />, label: '事件分类' },
+    ],
+  },
+  {
+    type: 'group' as const,
+    label: '属性管理',
+    children: [
+      { key: '/user-properties', icon: <UserOutlined />, label: '用户属性' },
+      { key: '/common-properties', icon: <GlobalOutlined />, label: '公共属性' },
+      { key: '/property-types', icon: <TagOutlined />, label: '属性类型' },
+    ],
+  },
+  {
+    type: 'group' as const,
+    label: '需求与文档',
+    children: [
+      { key: '/requirements', icon: <FileTextOutlined />, label: '埋点需求' },
+      { key: '/docs', icon: <BookOutlined />, label: '埋点文档' },
+    ],
+  },
 ]
 
 export default function MainLayout() {
@@ -67,9 +85,10 @@ export default function MainLayout() {
           alignItems: 'center',
           justifyContent: 'center',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
+          background: `linear-gradient(135deg, ${token.colorPrimaryBg} 0%, ${token.colorBgContainer} 100%)`,
         }}>
           <ThunderboltOutlined style={{ fontSize: 20, color: token.colorPrimary, marginRight: collapsed ? 0 : 8 }} />
-          {!collapsed && <span style={{ fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap' }}>埋点管理平台</span>}
+          {!collapsed && <span style={{ fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap', background: `linear-gradient(135deg, ${token.colorPrimary}, #7c3aed)`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>埋点管理平台</span>}
         </div>
         <Menu
           mode="inline"

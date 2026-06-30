@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Button, Table, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List } from 'antd'
-import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined } from '@ant-design/icons'
+import { Card, Button, Table, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
+import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined } from '@ant-design/icons'
 import {
   DndContext, closestCorners, PointerSensor, useSensor, useSensors, type DragEndEvent,
 } from '@dnd-kit/core'
@@ -12,6 +12,7 @@ import { createEventProperty, updateEventProperty, deleteEventProperty } from '.
 import { getVersions, createVersion, deleteVersion } from '../../api/versions'
 import type { Version } from '../../api/versions'
 import StatusBadge from '../../components/StatusBadge'
+import EmptyState from '../../components/EmptyState'
 import type { Requirement, RequirementStatus, RequirementPriority, ProposedProperty, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import RequirementFormModal from './RequirementFormModal'
@@ -55,7 +56,7 @@ export default function RequirementPage() {
       if (versions.length > 0 && !filterVersion) {
         setFilterVersion(versions[0].name) // 默认最新
       }
-    } catch { /* ignore */ }
+    } catch (err) { console.error('加载版本列表失败:', err) }
   }, [projectId])
 
   useEffect(() => { loadVersions() }, [loadVersions])
@@ -381,11 +382,11 @@ export default function RequirementPage() {
       render: (v: string, r: Requirement) => <a onClick={() => navigate(`/requirements/${r.id}`)}>{v}</a>,
     },
     {
-      title: '需求类型', dataIndex: 'modification_type', key: 'modification_type', width: 70,
+      title: '类型', dataIndex: 'modification_type', key: 'modification_type', width: 70,
       render: (v: string) => v === 'new' ? <Tag color="blue">新增</Tag> : <Tag color="green">修改</Tag>,
     },
     {
-      title: '埋点类型', dataIndex: 'tracking_type', key: 'tracking_type', width: 80,
+      title: '埋点', dataIndex: 'tracking_type', key: 'tracking_type', width: 70, responsive: ['sm' as const] as ('sm')[],
       render: (v: string) => {
         const labels: Record<string, { color: string; label: string }> = {
           event: { color: 'purple', label: '事件' },
@@ -396,42 +397,56 @@ export default function RequirementPage() {
         return <Tag color={opt.color}>{opt.label}</Tag>
       },
     },
-    { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 110, render: (v: string) => v || '-' },
-    { title: '事件/属性', dataIndex: 'event_name', key: 'event_name', width: 140, render: (v: string) => v || '-' },
-    { title: '版本', dataIndex: 'version', key: 'version', width: 80, render: (v: string) => v || '-' },
+    { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 100, responsive: ['sm' as const] as ('sm')[], render: (v: string) => v || '-' },
+    { title: '事件/属性', dataIndex: 'event_name', key: 'event_name', width: 130, responsive: ['md' as const] as ('md')[], render: (v: string) => v || '-' },
+    { title: '版本', dataIndex: 'version', key: 'version', width: 70, responsive: ['md' as const] as ('md')[], render: (v: string) => v || '-' },
     {
-      title: '平台', key: 'platforms', width: 120,
+      title: '平台', key: 'platforms', width: 110, responsive: ['lg' as const] as ('lg')[],
       render: (_: unknown, r: Requirement) => (r.platforms || []).map((p: string) => {
         const opt = PLATFORM_OPTIONS.find(o => o.value === p)
         return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
       }),
     },
     {
-      title: '优先级', dataIndex: 'priority', key: 'priority', width: 60,
+      title: '优先级', dataIndex: 'priority', key: 'priority', width: 55,
       render: (p: RequirementPriority) => <Tag color={PRIORITY_TAGS[p]?.color}>{PRIORITY_TAGS[p]?.label}</Tag>,
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 80,
+      title: '状态', dataIndex: 'status', key: 'status', width: 75,
       render: (s: RequirementStatus) => <StatusBadge status={s} type="requirement" />,
     },
     {
-      title: '提交人', key: 'requester', width: 80,
+      title: '提交人', key: 'requester', width: 70, responsive: ['sm' as const] as ('sm')[],
       render: (_: unknown, r: Requirement) => r.profiles_requester?.display_name || '-',
     },
     {
-      title: '操作', key: 'actions', width: 160,
-      render: (_: unknown, record: Requirement) => (
-        <Space>
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/requirements/${record.id}`)}>详情</Button>
-          {record.status !== 'done' && (
-            <Button type="link" size="small" onClick={() => handleMarkDone(record)}>完成</Button>
-          )}
-          <Button type="link" size="small" onClick={() => { setEditingRecord(record); setModalOpen(true) }}>编辑</Button>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
+      title: '操作', key: 'actions', width: 130,
+      render: (_: unknown, record: Requirement) => {
+        const menuItems = {
+          items: [
+            ...(record.status !== 'done' ? [{ key: 'done', icon: <CheckOutlined />, label: '标记完成', onClick: (e: any) => { e.domEvent.stopPropagation(); handleMarkDone(record) } }] : []),
+            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); setEditingRecord(record); setModalOpen(true) } },
+            { type: 'divider' as const },
+            {
+              key: 'delete',
+              icon: <DeleteOutlined />,
+              label: <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)} onPopupClick={(e) => e.stopPropagation()}>
+                删除
+              </Popconfirm>,
+              danger: true,
+              onClick: (e: any) => { e.domEvent.stopPropagation() },
+            },
+          ],
+        }
+        return (
+          <Space size="small" onClick={(e) => e.stopPropagation()}>
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/requirements/${record.id}`)}>详情</Button>
+            <Dropdown menu={menuItems} trigger={['click']}>
+              <Button type="link" size="small" icon={<MoreOutlined />} onClick={(e) => e.preventDefault()} />
+            </Dropdown>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -487,7 +502,7 @@ export default function RequirementPage() {
 
       {viewMode === 'kanban' ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 16, overflow: 'auto', minHeight: '60vh' }}>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', minHeight: '60vh' }}>
             {STATUSES.map((status) => (
               <KanbanColumn
                 key={status}
@@ -509,8 +524,14 @@ export default function RequirementPage() {
             dataSource={filtered}
             rowKey="id"
             loading={loading || syncing}
+            onRow={(record) => ({
+              onClick: () => navigate(`/requirements/${record.id}`),
+              style: { cursor: 'pointer' },
+            })}
             pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条需求` }}
             size="middle"
+            scroll={{ x: 800 }}
+            locale={{ emptyText: <EmptyState scene="no_data" itemName="埋点需求" onAction={() => { setEditingRecord(null); setModalOpen(true) }} actionLabel="提交需求" /> }}
           />
         </Card>
       )}
@@ -546,7 +567,7 @@ export default function RequirementPage() {
               {v.name}
             </List.Item>
           )}
-          locale={{ emptyText: '暂无版本' }}
+          locale={{ emptyText: <EmptyState scene="no_data" itemName="版本" /> }}
         />
       </Modal>
 

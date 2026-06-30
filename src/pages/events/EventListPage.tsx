@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Input, Select, Space, Popconfirm, Tag, message } from 'antd'
-import { PlusOutlined, SearchOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Input, Select, Space, Popconfirm, Tag, message, Dropdown } from 'antd'
+import { PlusOutlined, SearchOutlined, DeleteOutlined, EyeOutlined, MoreOutlined, EditOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { getEvents, createEvent, updateEvent, deleteEvent } from '../../api/events'
 import { getCategories } from '../../api/categories'
 import StatusBadge from '../../components/StatusBadge'
+import EmptyState from '../../components/EmptyState'
 import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import EventFormModal from './EventFormModal'
 import { useProjectStore } from '../../stores/projectStore'
+import { useDebounce } from '../../hooks/useDebounce'
 
 export default function EventListPage() {
   const navigate = useNavigate()
@@ -20,8 +22,16 @@ export default function EventListPage() {
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
   const [filters, setFilters] = useState<{ category_id?: string; status?: string; search?: string }>({})
+  const [searchInput, setSearchInput] = useState('')
+  const debouncedSearch = useDebounce(searchInput, 300)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<TrackingEvent | null>(null)
+
+  // 防抖搜索值变化时更新 filters
+  useEffect(() => {
+    setFilters((f) => ({ ...f, search: debouncedSearch || undefined }))
+    setPage(1)
+  }, [debouncedSearch])
 
   const loadData = useCallback(async () => {
     if (!projectId) return
@@ -98,32 +108,48 @@ export default function EventListPage() {
       title: '状态', dataIndex: 'status', key: 'status', width: 80,
       render: (status: EventStatus) => <StatusBadge status={status} type="event" />,
     },
-    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true, responsive: ['sm' as const] as ('sm')[] },
     {
-      title: '平台', key: 'platforms', width: 130,
+      title: '平台', key: 'platforms', width: 130, responsive: ['md' as const] as ('md')[],
       render: (_: unknown, r: TrackingEvent) => (r.platforms || []).map((p: string) => {
         const opt = PLATFORM_OPTIONS.find(o => o.value === p)
         return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
       }),
     },
-    { title: '触发时机', dataIndex: 'trigger_timing', key: 'trigger_timing', width: 120, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '触发时机', dataIndex: 'trigger_timing', key: 'trigger_timing', width: 120, ellipsis: true, render: (v: string) => v || '-', responsive: ['md' as const] as ('md')[] },
     {
-      title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180,
+      title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180, responsive: ['lg' as const] as ('lg')[],
       render: (val: string) => val ? new Date(val).toLocaleString('zh-CN') : '-',
     },
     {
-      title: '操作', key: 'actions', width: 180,
-      render: (_, record) => (
-        <Space size="small">
-          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/events/${record.id}`)}>
-            查看
-          </Button>
-          <Button type="link" size="small" onClick={() => handleEdit(record)}>编辑</Button>
-          <Popconfirm title="确定删除？关联属性会一并删除" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
+      title: '操作', key: 'actions', width: 130,
+      render: (_, record) => {
+        const menuItems = {
+          items: [
+            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); handleEdit(record) } },
+            { type: 'divider' as const },
+            {
+              key: 'delete',
+              icon: <DeleteOutlined />,
+              label: <Popconfirm title="确定删除？关联属性会一并删除" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消" onPopupClick={(e) => e.stopPropagation()}>
+                删除
+              </Popconfirm>,
+              danger: true,
+              onClick: (e: any) => { e.domEvent.stopPropagation() },
+            },
+          ],
+        }
+        return (
+          <Space size="small" onClick={(e) => e.stopPropagation()}>
+            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/events/${record.id}`)}>
+              查看
+            </Button>
+            <Dropdown menu={menuItems} trigger={['click']}>
+              <Button type="link" size="small" icon={<MoreOutlined />} onClick={(e) => e.preventDefault()} />
+            </Dropdown>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -140,7 +166,8 @@ export default function EventListPage() {
             prefix={<SearchOutlined />}
             allowClear
             style={{ width: 220 }}
-            onChange={(e) => { setFilters((f) => ({ ...f, search: e.target.value || undefined })); setPage(1) }}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
           />
           <Select
             placeholder="按分类筛选"
@@ -166,6 +193,10 @@ export default function EventListPage() {
           dataSource={events}
           rowKey="id"
           loading={loading}
+          onRow={(record) => ({
+            onClick: () => navigate(`/events/${record.id}`),
+            style: { cursor: 'pointer' },
+          })}
           pagination={{
             current: page,
             pageSize: 20,
@@ -174,6 +205,8 @@ export default function EventListPage() {
             showTotal: (t) => `共 ${t} 个事件`,
           }}
           size="middle"
+          scroll={{ x: 900 }}
+          locale={{ emptyText: <EmptyState scene="no_data" itemName="事件" onAction={handleCreate} actionLabel="创建事件" /> }}
         />
       </Card>
 
