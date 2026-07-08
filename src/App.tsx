@@ -19,6 +19,19 @@ import DocsPage from './pages/docs/DocsPage'
 import PropertyTypePage from './pages/properties/PropertyTypePage'
 import RequirementDetailPage from './pages/requirements/RequirementDetailPage'
 
+const fontFamily = [
+  '-apple-system',
+  'BlinkMacSystemFont',
+  'Segoe UI',
+  'Microsoft YaHei UI',
+  'Microsoft YaHei',
+  'PingFang SC',
+  'Noto Sans SC',
+  'Helvetica Neue',
+  'Arial',
+  'sans-serif',
+].join(', ')
+
 export default function App() {
   const initializeAuth = useAuthStore((s) => s.initialize)
   const session = useAuthStore((s) => s.session)
@@ -39,7 +52,7 @@ export default function App() {
   }, [session, initializeProject])
 
   return (
-    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#4f46e5', borderRadius: 6 } }}>
+    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#4f46e5', borderRadius: 6, fontFamily } }}>
       <AntApp>
         <BrowserRouter>
           <ErrorBoundary>

@@ -14,10 +14,12 @@ import {
   LogoutOutlined,
   TagOutlined,
 } from '@ant-design/icons'
+import PandaLogo from './PandaLogo'
 import { useAuthStore } from '../stores/authStore'
 import { useProjectStore } from '../stores/projectStore'
 
 const { Header, Sider, Content } = Layout
+const MAIN_MIN_WIDTH = 900
 
 const menuItems = [
   {
@@ -56,9 +58,15 @@ export default function MainLayout() {
   const { projects, currentProjectId, setCurrentProject } = useProjectStore()
   const { token } = theme.useToken()
 
+  const selectedKeys = [location.pathname === '/' ? '/' : `/${location.pathname.split('/')[1]}`]
+
   const handleSignOut = async () => {
     await signOut()
     navigate('/login')
+  }
+
+  const handleMenuClick = (key: string) => {
+    navigate(key)
   }
 
   const userMenuItems = [
@@ -68,7 +76,7 @@ export default function MainLayout() {
   ]
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <Layout style={{ minHeight: '100vh', background: token.colorBgLayout }}>
       <Sider
         trigger={null}
         collapsible
@@ -84,21 +92,22 @@ export default function MainLayout() {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
+          gap: collapsed ? 0 : 8,
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           background: `linear-gradient(135deg, ${token.colorPrimaryBg} 0%, ${token.colorBgContainer} 100%)`,
         }}>
-          <ThunderboltOutlined style={{ fontSize: 20, color: token.colorPrimary, marginRight: collapsed ? 0 : 8 }} />
+          <PandaLogo size={28} accentColor={token.colorPrimary} compact />
           {!collapsed && <span style={{ fontWeight: 700, fontSize: 16, whiteSpace: 'nowrap', background: `linear-gradient(135deg, ${token.colorPrimary}, #7c3aed)`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>埋点管理平台</span>}
         </div>
         <Menu
           mode="inline"
-          selectedKeys={[location.pathname === '/' ? '/' : `/${location.pathname.split('/')[1]}`]}
+          selectedKeys={selectedKeys}
           items={menuItems}
-          onClick={({ key }) => navigate(key)}
+          onClick={({ key }) => handleMenuClick(key)}
           style={{ border: 'none', marginTop: 8 }}
         />
       </Sider>
-      <Layout>
+      <Layout style={{ minWidth: MAIN_MIN_WIDTH }}>
         <Header style={{
           padding: '0 24px',
           background: token.colorBgContainer,
@@ -107,8 +116,9 @@ export default function MainLayout() {
           justifyContent: 'space-between',
           borderBottom: `1px solid ${token.colorBorderSecondary}`,
           height: 64,
+          minWidth: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
             <Button
               type="text"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
@@ -119,18 +129,27 @@ export default function MainLayout() {
                 value={currentProjectId}
                 onChange={(value) => setCurrentProject(value)}
                 options={projects.map((p) => ({ value: p.id, label: p.name }))}
-                style={{ width: 140 }}
+                style={{ width: 160 }}
                 size="small"
               />
             )}
           </div>
           <Dropdown menu={{ items: userMenuItems, onClick: ({ key }) => { if (key === 'logout') handleSignOut() } }}>
-            <Button type="text" icon={<UserOutlined />}>
+            <Button
+              type="text"
+              icon={<UserOutlined />}
+              style={{
+                maxWidth: 220,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
               {profile?.display_name || '用户'}
             </Button>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 24, padding: 24, background: token.colorBgContainer, borderRadius: 8 }}>
+        <Content style={{ margin: 24, minWidth: 0 }}>
           <Outlet />
         </Content>
       </Layout>

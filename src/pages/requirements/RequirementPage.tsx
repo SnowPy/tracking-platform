@@ -19,10 +19,10 @@ import RequirementFormModal from './RequirementFormModal'
 import KanbanColumn from './KanbanColumn'
 import { useProjectStore } from '../../stores/projectStore'
 
-const STATUSES: RequirementStatus[] = ['pending', 'in_progress', 'done', 'rejected']
+const STATUSES: RequirementStatus[] = ['pending', 'in_progress', 'done']
 const STATUS_LABELS: Record<RequirementStatus, string> = {
-  pending: '待处理',
-  in_progress: '进行中',
+  pending: '待开发',
+  in_progress: '待验收',
   done: '已完成',
   rejected: '已拒绝',
 }
@@ -496,7 +496,7 @@ export default function RequirementPage() {
         </div>
       )}
 
-      <Space style={{ marginBottom: 12 }} wrap>
+      <Space style={{ marginBottom: 12, minHeight: 32 }} wrap>
         <Select
           placeholder="按平台筛选"
           allowClear
@@ -523,7 +523,16 @@ export default function RequirementPage() {
 
       {viewMode === 'kanban' ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', minHeight: '60vh' }}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))',
+            justifyContent: 'start',
+            alignItems: 'start',
+            gap: 16,
+            minHeight: '60vh',
+            overflowX: 'auto',
+            paddingBottom: 4,
+          }}>
             {STATUSES.map((status) => (
               <KanbanColumn
                 key={status}
@@ -533,7 +542,6 @@ export default function RequirementPage() {
                 count={kanbanData[status].length}
                 onEdit={(record) => { setEditingRecord(record); setCopyFromRecord(null); setModalOpen(true) }}
                 onDelete={handleDelete}
-                onMarkDone={handleMarkDone}
                 onCopy={(record) => { setCopyFromRecord(record); setEditingRecord(null); setModalOpen(true) }}
               />
             ))}
@@ -617,4 +625,3 @@ export default function RequirementPage() {
     </div>
   )
 }
-

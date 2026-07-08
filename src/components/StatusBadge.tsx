@@ -8,8 +8,8 @@ const EVENT_STATUS_MAP: Record<EventStatus, { color: string; label: string }> = 
 }
 
 const REQUIREMENT_STATUS_MAP: Record<RequirementStatus, { color: string; label: string }> = {
-  pending: { color: 'processing', label: '待处理' },
-  in_progress: { color: 'warning', label: '进行中' },
+  pending: { color: 'processing', label: '待开发' },
+  in_progress: { color: 'warning', label: '待验收' },
   done: { color: 'success', label: '已完成' },
   rejected: { color: 'error', label: '已拒绝' },
 }

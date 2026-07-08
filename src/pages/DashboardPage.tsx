@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Space, List, Tag, Typography, theme, message } from 'antd'
+import { Row, Col, Card, Statistic, Space, List, Tag, Typography, theme, message, Button } from 'antd'
 import {
   ThunderboltOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   FileTextOutlined, RightOutlined,
@@ -13,6 +13,18 @@ import EmptyState from '../components/EmptyState'
 import { useProjectStore } from '../stores/projectStore'
 
 const { Text } = Typography
+
+const pageMaxWidth = 1200
+
+const cardStyle = {
+  height: '100%',
+  borderRadius: 8,
+} as const
+
+const listCardStyle = {
+  ...cardStyle,
+  minHeight: 260,
+} as const
 
 export default function DashboardPage() {
   const navigate = useNavigate()
@@ -46,13 +58,18 @@ export default function DashboardPage() {
   }, [projectId])
 
   return (
-    <div>
-      <h1 style={{ marginBottom: 24 }}>总览</h1>
+    <div style={{ maxWidth: pageMaxWidth, margin: '0 auto' }}>
+      <div style={{ marginBottom: 20 }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: 30, lineHeight: 1.25 }}>总览</h1>
+          <Text type="secondary">查看当前项目的事件资产和待处理需求</Text>
+        </div>
+      </div>
 
       {/* 统计卡片 */}
-      <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
-          <Card hoverable onClick={() => navigate('/events')} loading={loading}>
+      <Row gutter={[12, 12]}>
+        <Col xs={12} md={6}>
+          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
             <Statistic
               title="事件总数"
               value={stats.total}
@@ -61,8 +78,8 @@ export default function DashboardPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card hoverable onClick={() => navigate('/events')} loading={loading}>
+        <Col xs={12} md={6}>
+          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
             <Statistic
               title="启用中"
               value={stats.active}
@@ -72,8 +89,8 @@ export default function DashboardPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card hoverable loading={loading}>
+        <Col xs={12} md={6}>
+          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
             <Statistic
               title="已废弃"
               value={stats.deprecated}
@@ -83,8 +100,8 @@ export default function DashboardPage() {
             />
           </Card>
         </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card hoverable onClick={() => navigate('/requirements')} loading={loading}>
+        <Col xs={12} md={6}>
+          <Card hoverable onClick={() => navigate('/requirements')} loading={loading} style={cardStyle}>
             <Statistic
               title="待处理需求"
               value={pendingReqs.length}
@@ -102,7 +119,8 @@ export default function DashboardPage() {
           <Card
             title="最近更新事件"
             loading={loading}
-            extra={<a onClick={() => navigate('/events')}>全部 <RightOutlined /></a>}
+            style={listCardStyle}
+            extra={<Button type="link" size="small" onClick={() => navigate('/events')}>全部 <RightOutlined /></Button>}
           >
             {recentEvents.length === 0 ? (
               <EmptyState scene="no_data" itemName="事件" onAction={() => navigate('/events')} actionLabel="前往创建" />
@@ -115,10 +133,16 @@ export default function DashboardPage() {
                     onClick={() => navigate(`/events/${item.id}`)}
                   >
                     <List.Item.Meta
-                      title={<Space>
-                        <code>{item.name}</code>
-                        <Text type="secondary">{item.display_name}</Text>
-                      </Space>}
+                      title={
+                        <div style={{ minWidth: 0 }}>
+                          <Text strong ellipsis={{ tooltip: item.display_name || item.name }} style={{ display: 'block' }}>
+                            {item.display_name || item.name}
+                          </Text>
+                          <Text code ellipsis={{ tooltip: item.name }} style={{ display: 'block', maxWidth: '100%' }}>
+                            {item.name}
+                          </Text>
+                        </div>
+                      }
                       description={
                         <Space>
                           <StatusBadge status={item.status} type="event" />
@@ -136,7 +160,8 @@ export default function DashboardPage() {
           <Card
             title="待处理需求"
             loading={loading}
-            extra={<a onClick={() => navigate('/requirements')}>全部 <RightOutlined /></a>}
+            style={listCardStyle}
+            extra={<Button type="link" size="small" onClick={() => navigate('/requirements')}>全部 <RightOutlined /></Button>}
           >
             {pendingReqs.length === 0 ? (
               <EmptyState scene="no_data" itemName="待处理需求" onAction={() => navigate('/requirements')} actionLabel="提交需求" />
@@ -144,9 +169,13 @@ export default function DashboardPage() {
               <List
                 dataSource={pendingReqs}
                 renderItem={(item) => (
-                  <List.Item style={{ cursor: 'pointer' }} onClick={() => navigate('/requirements')}>
+                  <List.Item style={{ cursor: 'pointer' }} onClick={() => navigate(`/requirements/${item.id}`)}>
                     <List.Item.Meta
-                      title={item.title}
+                      title={
+                        <Text strong ellipsis={{ tooltip: item.title }} style={{ display: 'block' }}>
+                          {item.title}
+                        </Text>
+                      }
                       description={<StatusBadge status={item.status} type="requirement" />}
                     />
                   </List.Item>

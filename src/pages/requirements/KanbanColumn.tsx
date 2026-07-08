@@ -1,11 +1,37 @@
 import { useNavigate } from 'react-router-dom'
-import { Card, Tag, Button, Space, Popconfirm, Typography } from 'antd'
-import { EditOutlined, DeleteOutlined, UserOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
-import { useDroppable, useDraggable } from '@dnd-kit/core'
-import type { Requirement, RequirementStatus, RequirementPriority } from '../../types'
+import { Button, Card, Popconfirm, Space, Tag, Typography, theme } from 'antd'
+import { CopyOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
+import type { Requirement, RequirementStatus } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
+
+const CARD_TITLE_STYLE: React.CSSProperties = {
+  display: 'block',
+  fontSize: 14,
+  fontWeight: 600,
+  lineHeight: '22px',
+  cursor: 'pointer',
+}
+
+const OBJECT_NAME_STYLE: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  fontFamily: "'SF Mono', 'Cascadia Code', Consolas, 'Microsoft YaHei UI', monospace",
+  fontSize: 13,
+  lineHeight: '20px',
+}
+
+const META_TEXT_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: '20px',
+}
+
+const TAG_STYLE: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: '20px',
+}
 
 const COLUMN_COLORS: Record<RequirementStatus, string> = {
   pending: '#1677ff',
@@ -14,88 +40,112 @@ const COLUMN_COLORS: Record<RequirementStatus, string> = {
   rejected: '#ff4d4f',
 }
 
-const PRIORITY_TAGS: Record<RequirementPriority, { color: string; label: string }> = {
-  high: { color: 'red', label: '高' },
-  medium: { color: 'orange', label: '中' },
-  low: { color: 'default', label: '低' },
+function getObjectName(item: Requirement) {
+  return item.event_name || item.display_name || '未填写事件/属性名'
 }
 
-function DraggableCard({ item, onEdit, onDelete, onMarkDone, onCopy }: {
+function getPlatformText(platforms: Requirement['platforms']) {
+  if (!platforms || platforms.length === 0) return ''
+
+  const selectedPlatforms = new Set(platforms)
+  const hasAllPlatforms = PLATFORM_OPTIONS.every((option) => selectedPlatforms.has(option.value))
+  if (hasAllPlatforms) return '全部平台'
+
+  return platforms
+    .map((platform) => PLATFORM_OPTIONS.find((option) => option.value === platform)?.label || platform)
+    .join(' / ')
+}
+
+function getMetaText(item: Requirement) {
+  return [item.version, getPlatformText(item.platforms)]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+function DraggableCard({ item, onEdit, onDelete, onCopy }: {
   item: Requirement
   onEdit: (item: Requirement) => void
   onDelete: (id: string) => void
-  onMarkDone: (item: Requirement) => void
   onCopy: (item: Requirement) => void
 }) {
   const navigate = useNavigate()
+  const { token } = theme.useToken()
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: item.id })
+  const dragTransform = transform
+    ? `translate3d(${Math.round(transform.x)}px, ${Math.round(transform.y)}px, 0)`
+    : undefined
 
   const style: React.CSSProperties = {
-    transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
+    transform: dragTransform,
     opacity: isDragging ? 0.5 : 1,
     cursor: 'grab',
   }
+
+  const objectName = getObjectName(item)
+  const metaText = getMetaText(item)
 
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} style={style}>
       <Card
         size="small"
-        style={{ marginBottom: 8 }}
+        variant="borderless"
+        style={{ marginBottom: 10, outline: `1px solid ${token.colorBorderSecondary}` }}
         styles={{ body: { padding: 12 } }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-          <Text strong style={{ flex: 1, fontSize: 13, lineHeight: '20px', cursor: 'pointer' }}
-            onClick={() => navigate(`/requirements/${item.id}`)}>{item.title}</Text>
-          <Space size={4}>
-            <Tag color={item.modification_type === 'new' ? 'blue' : 'green'} style={{ marginLeft: 0 }}>
-              {item.modification_type === 'new' ? '新增' : '修改'}
-            </Tag>
-            <Tag color={PRIORITY_TAGS[item.priority]?.color}>
-              {PRIORITY_TAGS[item.priority]?.label}
-            </Tag>
-          </Space>
-        </div>
-        {(item.version || (item.platforms && item.platforms.length > 0)) && (
-          <Space size={2} wrap style={{ marginBottom: 4 }}>
-            {item.version && <Tag style={{ fontSize: 10 }}>📦 {item.version}</Tag>}
-            {(item.platforms || []).map((p: string) => {
-              const opt = PLATFORM_OPTIONS.find(o => o.value === p)
-              return <Tag key={p} color={opt?.color} style={{ fontSize: 10 }}>{opt?.label || p}</Tag>
-            })}
-          </Space>
-        )}
-        {item.event_name && (
-          <Tag style={{ marginBottom: 4, fontSize: 12 }}>{item.event_name}</Tag>
-        )}
-        {item.description && (
-          <Paragraph
-            ellipsis={{ rows: 2 }}
-            style={{ fontSize: 12, color: '#666', marginBottom: 8 }}
+        <div style={{ marginBottom: 6 }}>
+          <Text
+            strong
+            ellipsis
+            style={CARD_TITLE_STYLE}
+            onClick={() => navigate(`/requirements/${item.id}`)}
           >
-            {item.description}
-          </Paragraph>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Text type="secondary" style={{ fontSize: 11 }}>
-            <UserOutlined style={{ marginRight: 2 }} />
-            {item.profiles_requester?.display_name || '-'}
+            {item.title}
           </Text>
-          <Space size="small">
-            {item.status !== 'done' && (
-              <Button
-                type="link" size="small"
-                icon={<CheckOutlined style={{ color: '#52c41a' }} />}
-                onClick={(e) => { e.stopPropagation(); onMarkDone(item) }}
-              />
-            )}
-            <Button type="link" size="small" icon={<CopyOutlined />}
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <Text
+            ellipsis
+            style={{
+              ...OBJECT_NAME_STYLE,
+              color: objectName === '未填写事件/属性名' ? token.colorTextTertiary : token.colorText,
+              background: token.colorFillQuaternary,
+              borderRadius: 4,
+              padding: '2px 6px',
+            }}
+          >
+            {objectName}
+          </Text>
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <Text type="secondary" ellipsis style={{ ...META_TEXT_STYLE, flex: 1, minWidth: 0 }}>
+            {metaText}
+          </Text>
+          <Space size={4}>
+            <Button
+              type="text"
+              size="small"
+              icon={<CopyOutlined />}
+              title="复制"
               onClick={(e) => { e.stopPropagation(); onCopy(item) }}
-              title="复制" />
-            <Button type="link" size="small" icon={<EditOutlined />}
-              onClick={(e) => { e.stopPropagation(); onEdit(item) }} />
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              title="编辑"
+              onClick={(e) => { e.stopPropagation(); onEdit(item) }}
+            />
             <Popconfirm title="确定删除？" onConfirm={() => onDelete(item.id)}>
-              <Button type="link" size="small" danger icon={<DeleteOutlined />}
-                onClick={(e) => e.stopPropagation()} />
+              <Button
+                type="text"
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                title="删除"
+                onClick={(e) => e.stopPropagation()}
+              />
             </Popconfirm>
           </Space>
         </div>
@@ -111,21 +161,20 @@ interface KanbanColumnProps {
   count: number
   onEdit: (item: Requirement) => void
   onDelete: (id: string) => void
-  onMarkDone: (item: Requirement) => void
   onCopy: (item: Requirement) => void
 }
 
-export default function KanbanColumn({ status, label, items, count, onEdit, onDelete, onMarkDone, onCopy }: KanbanColumnProps) {
+export default function KanbanColumn({ status, label, items, count, onEdit, onDelete, onCopy }: KanbanColumnProps) {
   const { setNodeRef, isOver } = useDroppable({ id: status })
+  const { token } = theme.useToken()
 
   return (
     <div
       ref={setNodeRef}
       style={{
-        flex: '1 1 0',
-        minWidth: 280,
-        maxWidth: 360,
-        background: isOver ? '#f0f5ff' : '#fafafa',
+        width: '100%',
+        minWidth: 0,
+        background: isOver ? token.colorPrimaryBg : token.colorFillQuaternary,
         borderRadius: 8,
         padding: '12px',
         transition: 'background 0.2s',
@@ -146,20 +195,21 @@ export default function KanbanColumn({ status, label, items, count, onEdit, onDe
             borderRadius: '50%',
             background: COLUMN_COLORS[status],
           }} />
-          <Text strong>{label}</Text>
+          <Text strong style={{ fontSize: 14, lineHeight: '22px' }}>{label}</Text>
         </Space>
-        <Tag>{count}</Tag>
+        <Tag style={TAG_STYLE}>{count}</Tag>
       </div>
       <div style={{ maxHeight: 'calc(100vh - 260px)', overflowY: 'auto' }}>
         {items.map((item) => (
-          <DraggableCard key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onMarkDone={onMarkDone} onCopy={onCopy} />
+          <DraggableCard key={item.id} item={item} onEdit={onEdit} onDelete={onDelete} onCopy={onCopy} />
         ))}
         {items.length === 0 && (
           <div style={{
             textAlign: 'center',
             padding: '24px 0',
-            color: '#ccc',
+            color: token.colorTextTertiary,
             fontSize: 14,
+            lineHeight: '22px',
           }}>
             拖拽需求至此
           </div>

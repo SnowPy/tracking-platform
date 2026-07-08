@@ -472,7 +472,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                   {(copyFrom!.modification_type === 'new' && copyFrom!.event_name) && (
                     <li>事件名/属性名已自动追加 <code>_copy</code> 后缀以避免冲突</li>
                   )}
-                  <li>提交人将设为你，状态重置为「待处理」</li>
+                  <li>提交人将设为你，状态重置为「待开发」</li>
                   <li>建议修改<strong>显示名</strong>和<strong>版本号</strong>以区分原需求</li>
                 </ul>
               </div>
