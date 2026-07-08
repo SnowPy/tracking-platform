@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Card, Button, Table, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
 import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
@@ -20,6 +20,9 @@ import KanbanColumn from './KanbanColumn'
 import { useProjectStore } from '../../stores/projectStore'
 
 const STATUSES: RequirementStatus[] = ['pending', 'in_progress', 'done']
+const KANBAN_COLUMN_GAP = 16
+const KANBAN_MIN_COLUMN_WIDTH = 280
+const KANBAN_FALLBACK_COLUMN_WIDTH = 360
 const STATUS_LABELS: Record<RequirementStatus, string> = {
   pending: '待开发',
   in_progress: '待验收',
@@ -48,6 +51,37 @@ export default function RequirementPage() {
   const [allVersions, setAllVersions] = useState<Version[]>([])
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const [newVersionName, setNewVersionName] = useState('')
+  const kanbanBoardRef = useRef<HTMLDivElement | null>(null)
+
+  useEffect(() => {
+    if (viewMode !== 'kanban') return
+
+    const board = kanbanBoardRef.current
+    if (!board) return
+
+    const updateColumnWidth = () => {
+      const boardWidth = Math.floor(board.getBoundingClientRect().width)
+      const totalGapWidth = KANBAN_COLUMN_GAP * (STATUSES.length - 1)
+      const availableWidth = boardWidth - totalGapWidth
+      const nextWidth = Math.max(
+        KANBAN_MIN_COLUMN_WIDTH,
+        Math.floor(availableWidth / STATUSES.length),
+      )
+
+      board.style.setProperty('--kanban-column-width', `${nextWidth}px`)
+    }
+
+    updateColumnWidth()
+
+    const observer = new ResizeObserver(updateColumnWidth)
+    observer.observe(board)
+    window.addEventListener('resize', updateColumnWidth)
+
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', updateColumnWidth)
+    }
+  }, [viewMode])
 
   // 加载版本列表并默认选最新
   const loadVersions = useCallback(async () => {
@@ -523,16 +557,19 @@ export default function RequirementPage() {
 
       {viewMode === 'kanban' ? (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 360px))',
-            justifyContent: 'start',
-            alignItems: 'start',
-            gap: 16,
-            minHeight: '60vh',
-            overflowX: 'auto',
-            paddingBottom: 4,
-          }}>
+          <div
+            ref={kanbanBoardRef}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: `repeat(${STATUSES.length}, var(--kanban-column-width, ${KANBAN_FALLBACK_COLUMN_WIDTH}px))`,
+              justifyContent: 'start',
+              alignItems: 'start',
+              gap: KANBAN_COLUMN_GAP,
+              minHeight: '60vh',
+              overflowX: 'auto',
+              paddingBottom: 4,
+            }}
+          >
             {STATUSES.map((status) => (
               <KanbanColumn
                 key={status}
