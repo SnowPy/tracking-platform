@@ -16,6 +16,7 @@ export default function UserPropertyPage() {
     <PropertyListPage
       title="用户属性"
       projectId={projectId}
+      tableResizeKey="user-properties"
       fetchFn={getUserProperties}
       createFn={createUserProperty}
       updateFn={updateUserProperty}

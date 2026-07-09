@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Button, Table, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
+import { Card, Button, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
 import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
 import {
   DndContext, closestCorners, PointerSensor, useSensor, useSensors, type DragEndEvent,
@@ -13,6 +13,7 @@ import { getVersions, createVersion, deleteVersion } from '../../api/versions'
 import type { Version } from '../../api/versions'
 import StatusBadge from '../../components/StatusBadge'
 import EmptyState from '../../components/EmptyState'
+import ResizableTable from '../../components/ResizableTable'
 import type { Requirement, RequirementStatus, RequirementPriority, ProposedProperty, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import RequirementFormModal from './RequirementFormModal'
@@ -586,7 +587,8 @@ export default function RequirementPage() {
         </DndContext>
       ) : (
         <Card>
-          <Table
+          <ResizableTable
+            resizeKey="requirements"
             columns={tableColumns}
             dataSource={filtered}
             rowKey="id"

@@ -32,3 +32,83 @@ code {
 .ant-card-hoverable:hover {
   box-shadow: 0 4px 16px rgba(79, 70, 229, 0.10) !important;
 }
+
+.resizable-table-header-cell {
+  position: relative;
+}
+
+.resizable-table-handle {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  z-index: 2;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+  touch-action: none;
+}
+
+.resizable-table-handle::after {
+  position: absolute;
+  top: 25%;
+  right: 3px;
+  width: 1px;
+  height: 50%;
+  background: transparent;
+  content: '';
+  transition: background 0.16s ease;
+}
+
+.resizable-table-header-cell:hover .resizable-table-handle::after,
+.resizable-table-handle:hover::after {
+  background: #4f46e5;
+}
+
+.resizable-table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 6px;
+}
+
+.resizable-table-layout-panel {
+  width: 280px;
+}
+
+.resizable-table-layout-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  margin-top: 10px;
+  overflow-y: auto;
+}
+
+.resizable-table-layout-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 6px;
+  background: #fff;
+  border: 1px solid #f0f0f0;
+  border-radius: 6px;
+}
+
+.resizable-table-layout-row:hover {
+  border-color: #c7d2fe;
+}
+
+.resizable-table-layout-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  color: #8c8c8c;
+  cursor: grab;
+  touch-action: none;
+}
+
+.resizable-table-layout-drag-handle:active {
+  cursor: grabbing;
+}

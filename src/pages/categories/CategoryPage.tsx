@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Button, Modal, Form, Input, TreeSelect, Space, message, Popconfirm, Table } from 'antd'
+import { Card, Button, Modal, Form, Input, TreeSelect, Space, message, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../../api/categories'
 import type { Category } from '../../types'
 import { useProjectStore } from '../../stores/projectStore'
+import ResizableTable from '../../components/ResizableTable'
 
 export default function CategoryPage() {
   const projectId = useProjectStore((s) => s.currentProjectId)
@@ -101,7 +102,7 @@ export default function CategoryPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>添加分类</Button>
       </div>
       <Card>
-        <Table columns={columns} dataSource={categories} rowKey="id" loading={loading} pagination={false} />
+        <ResizableTable resizeKey="categories" columns={columns} dataSource={categories} rowKey="id" loading={loading} pagination={false} />
       </Card>
 
       <Modal

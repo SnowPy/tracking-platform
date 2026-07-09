@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Button, Table, Tabs, Typography, Space, message, Collapse, Tag } from 'antd'
+import { Card, Button, Tabs, Typography, Space, message, Collapse, Tag } from 'antd'
 import { FileExcelOutlined, FileMarkdownOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
@@ -8,6 +8,7 @@ import type { TrackingEvent, EventProperty } from '../../types'
 import StatusBadge from '../../components/StatusBadge'
 import PropertyTypeTag from '../../components/PropertyTypeTag'
 import EmptyState from '../../components/EmptyState'
+import ResizableTable from '../../components/ResizableTable'
 import { useProjectStore } from '../../stores/projectStore'
 
 const { Title, Paragraph, Text } = Typography
@@ -128,7 +129,8 @@ export default function DocsPage() {
               </Space>
             ),
             children: (
-              <Table
+              <ResizableTable
+                resizeKey="docs-event-properties"
                 dataSource={propertiesMap[e.id] || []}
                 rowKey="id"
                 pagination={false}
@@ -163,7 +165,8 @@ export default function DocsPage() {
         <Text code>模块_动作_对象</Text>
       </Paragraph>
 
-      <Table
+      <ResizableTable
+        resizeKey="docs-event-name-examples"
         dataSource={[
           { example: 'page_view', desc: '页面浏览' },
           { example: 'button_click', desc: '按钮点击' },
@@ -188,7 +191,8 @@ export default function DocsPage() {
       </Paragraph>
 
       <Title level={5}>公共属性（每个事件自动携带，无需在事件中重复定义）</Title>
-      <Table
+      <ResizableTable
+        resizeKey="docs-common-property-examples"
         dataSource={[
           { name: 'page_url', type: 'string', desc: '当前页面 URL' },
           { name: 'timestamp', type: 'number', desc: '事件触发时间戳（毫秒）' },

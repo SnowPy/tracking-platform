@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Button, Tag, Space, Table, Typography, message, Popconfirm, Modal, Input } from 'antd'
+import { Card, Descriptions, Button, Tag, Space, Typography, message, Popconfirm, Modal, Input } from 'antd'
 import { ArrowLeftOutlined, EditOutlined, DeleteOutlined, CheckOutlined, UserOutlined, CopyOutlined } from '@ant-design/icons'
 import { supabase } from '../../supabase/client'
 import { getRequirements, updateRequirement, deleteRequirement } from '../../api/requirements'
 import { createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
 import StatusBadge from '../../components/StatusBadge'
+import ResizableTable from '../../components/ResizableTable'
 import type { Requirement, ProposedProperty } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import { useProjectStore } from '../../stores/projectStore'
@@ -259,7 +260,8 @@ export default function RequirementDetailPage() {
             {!req.proposed_properties || req.proposed_properties.length === 0 ? (
               <Text type="secondary">无建议属性</Text>
             ) : (
-              <Table
+              <ResizableTable
+                resizeKey="requirement-detail-properties"
                 dataSource={req.proposed_properties}
                 rowKey={(r, i) => r.existing_id || `new-${i}`}
                 pagination={false}

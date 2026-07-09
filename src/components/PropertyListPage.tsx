@@ -11,10 +11,11 @@ interface PropertyListPageProps {
   updateFn: (id: string, values: Partial<PropertyCreateValues>) => Promise<unknown>
   deleteFn: (id: string) => Promise<unknown>
   showRequired?: boolean
+  tableResizeKey: string
 }
 
 export default function PropertyListPage({
-  title, projectId, fetchFn, createFn, updateFn, deleteFn, showRequired,
+  title, projectId, fetchFn, createFn, updateFn, deleteFn, showRequired, tableResizeKey,
 }: PropertyListPageProps) {
   const [data, setData] = useState<PropertyItem[]>([])
   const [loading, setLoading] = useState(false)
@@ -43,6 +44,7 @@ export default function PropertyListPage({
           loading={loading}
           showRequired={showRequired}
           projectId={projectId}
+          resizeKey={tableResizeKey}
           onCreate={async (values) => { await createFn({ project_id: projectId, ...values }); await loadData() }}
           onUpdate={async (id, values) => { await updateFn(id, values); await loadData() }}
           onDelete={async (id) => { await deleteFn(id); await loadData() }}

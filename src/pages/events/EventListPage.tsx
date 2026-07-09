@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Table, Button, Input, Select, Space, Popconfirm, Tag, message, Dropdown } from 'antd'
+import { Card, Button, Input, Select, Space, Popconfirm, Tag, message, Dropdown } from 'antd'
 import { PlusOutlined, SearchOutlined, DeleteOutlined, EyeOutlined, MoreOutlined, EditOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { getEvents, createEvent, updateEvent, deleteEvent } from '../../api/events'
 import { getCategories } from '../../api/categories'
 import StatusBadge from '../../components/StatusBadge'
 import EmptyState from '../../components/EmptyState'
+import ResizableTable from '../../components/ResizableTable'
 import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import EventFormModal from './EventFormModal'
@@ -188,7 +189,8 @@ export default function EventListPage() {
             onChange={(val) => { setFilters((f) => ({ ...f, status: val })); setPage(1) }}
           />
         </Space>
-        <Table
+        <ResizableTable
+          resizeKey="events"
           columns={columns}
           dataSource={events}
           rowKey="id"

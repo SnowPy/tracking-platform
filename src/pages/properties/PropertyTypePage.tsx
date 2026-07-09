@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Modal, Form, Input, ColorPicker, Space, Popconfirm, message } from 'antd'
+import { Card, Button, Modal, Form, Input, ColorPicker, Space, Popconfirm, message } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import { getPropertyTypes, createPropertyType, updatePropertyType, deletePropertyType } from '../../api/propertyTypes'
 import type { PropertyTypeConfig } from '../../types'
 import { useProjectStore } from '../../stores/projectStore'
+import ResizableTable from '../../components/ResizableTable'
 
 export default function PropertyTypePage() {
   const projectId = useProjectStore((s) => s.currentProjectId)
@@ -50,7 +51,7 @@ export default function PropertyTypePage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>添加类型</Button>
       </div>
       <Card>
-        <Table dataSource={types} rowKey="id" loading={loading} pagination={false} size="middle"
+        <ResizableTable resizeKey="property-types" dataSource={types} rowKey="id" loading={loading} pagination={false} size="middle"
           columns={[
             { title: '标识', dataIndex: 'value', width: 140, render: (v: string) => <code>{v}</code> },
             { title: '显示名', dataIndex: 'label', width: 120 },

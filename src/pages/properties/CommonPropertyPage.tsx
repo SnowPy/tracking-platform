@@ -16,6 +16,7 @@ export default function CommonPropertyPage() {
     <PropertyListPage
       title="公共属性"
       projectId={projectId}
+      tableResizeKey="common-properties"
       fetchFn={getCommonProperties}
       createFn={createCommonProperty}
       updateFn={updateCommonProperty}

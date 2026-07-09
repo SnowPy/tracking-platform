@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Table, Button, Space, Modal, Form, Input, Select, Switch, Popconfirm, message, Tooltip, Tag } from 'antd'
+import { Button, Space, Modal, Form, Input, Select, Switch, Popconfirm, message, Tooltip, Tag } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { PropertyType, Platform } from '../types'
 import { PLATFORM_OPTIONS } from '../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from './PropertyTypeTag'
 import EmptyState from './EmptyState'
+import ResizableTable from './ResizableTable'
 
 const { TextArea } = Input
 
@@ -38,12 +39,13 @@ interface PropertyTableProps {
   loading?: boolean
   showRequired?: boolean
   projectId?: string
+  resizeKey?: string
   onCreate: (values: PropertyCreateValues) => Promise<void>
   onUpdate: (id: string, values: Partial<PropertyCreateValues>) => Promise<void>
   onDelete: (id: string) => Promise<void>
 }
 
-export default function PropertyTable({ dataSource, loading, showRequired, projectId, onCreate, onUpdate, onDelete }: PropertyTableProps) {
+export default function PropertyTable({ dataSource, loading, showRequired, projectId, resizeKey = 'properties', onCreate, onUpdate, onDelete }: PropertyTableProps) {
   const typeOptions = usePropertyTypeOptions(projectId)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PropertyItem | null>(null)
@@ -153,7 +155,8 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
           添加属性
         </Button>
       </div>
-      <Table
+      <ResizableTable
+        resizeKey={resizeKey}
         columns={columns}
         dataSource={dataSource}
         rowKey="id"

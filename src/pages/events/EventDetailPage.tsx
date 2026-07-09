@@ -147,6 +147,7 @@ export default function EventDetailPage() {
           dataSource={propItems}
           showRequired
           projectId={projectId!}
+          resizeKey="event-detail-properties"
           onCreate={async (values) => {
             await createEventProperty({ project_id: projectId!, event_id: id!, ...values })
             await loadData()
