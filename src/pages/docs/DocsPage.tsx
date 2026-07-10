@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Button, Tabs, Typography, Space, message, Collapse, Tag } from 'antd'
-import { FileExcelOutlined, FileMarkdownOutlined } from '@ant-design/icons'
-import { getEvents } from '../../api/events'
+import { Button, Card, Collapse, Empty, Input, message, Select, Space, Tabs, Tag, Typography } from 'antd'
+import { FileExcelOutlined, FileMarkdownOutlined, SearchOutlined } from '@ant-design/icons'
+import { getAllEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import type { TrackingEvent, EventProperty } from '../../types'
 import StatusBadge from '../../components/StatusBadge'
@@ -19,17 +19,35 @@ export default function DocsPage() {
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [propertiesMap, setPropertiesMap] = useState<Record<string, EventProperty[]>>({})
   const [loading, setLoading] = useState(true)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState<string>()
+
+  const categoryOptions = useMemo(() => {
+    const names = new Set(events.map((event) => event.categories?.name).filter((name): name is string => Boolean(name)))
+    return [...names].sort().map((name) => ({ value: name, label: name }))
+  }, [events])
+
+  const visibleEvents = useMemo(() => {
+    const keyword = search.trim().toLowerCase()
+    return events.filter((event) => {
+      const matchesSearch = !keyword || event.name.toLowerCase().includes(keyword) || event.display_name.toLowerCase().includes(keyword)
+      const matchesCategory = !categoryFilter || event.categories?.name === categoryFilter
+      return matchesSearch && matchesCategory
+    })
+  }, [categoryFilter, events, search])
 
   useEffect(() => {
     const load = async () => {
       if (!projectId) return
+      setLoading(true)
       try {
-        const { data } = await getEvents({ projectId, page: 1 })
-        setEvents(data.filter((e) => e.status !== 'deprecated'))
+        const data = await getAllEvents(projectId)
+        const activeEvents = data.filter((event) => event.status !== 'deprecated')
+        setEvents(activeEvents)
 
         const map: Record<string, EventProperty[]> = {}
         await Promise.all(
-          data.map(async (e) => {
+          activeEvents.map(async (e) => {
             try { map[e.id] = await getEventProperties(e.id) } catch { console.warn(`加载事件 ${e.id} 属性失败`); map[e.id] = [] }
           })
         )
@@ -52,7 +70,7 @@ export default function DocsPage() {
       if (props.length === 0) {
         rows.push([e.name, e.display_name, e.categories?.name || '', e.status, '', '', '', '', '', ''])
       } else {
-        props.forEach((p: any) => {
+        props.forEach((p: EventProperty) => {
           rows.push([e.name, e.display_name, e.categories?.name || '', e.status, p.name, p.display_name || '', p.type, p.required ? '是' : '否', p.description || '', p.example_value || ''])
         })
       }
@@ -86,7 +104,7 @@ export default function DocsPage() {
         if (props.length > 0) {
           md += '\n| 属性名 | 显示名 | 类型 | 必填 | 说明 | 示例值 |\n'
           md += '|--------|--------|------|------|------|--------|\n'
-          props.forEach((p: any) => {
+          props.forEach((p: EventProperty) => {
             md += `| ${p.name} | ${p.display_name || '-'} | ${p.type} | ${p.required ? '是' : '否'} | ${p.description || '-'} | ${p.example_value || '-'} |\n`
           })
         }
@@ -105,7 +123,26 @@ export default function DocsPage() {
   // 埋点字典 Tab
   const dictionaryTab = (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 16 }}>
+      <div className="management-filter-bar" style={{ justifyContent: 'space-between' }}>
+        <Space wrap>
+          <Input
+            allowClear
+            prefix={<SearchOutlined />}
+            placeholder="搜索事件标识或显示名称"
+            style={{ width: 240 }}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <Select
+            allowClear
+            placeholder="全部分类"
+            style={{ width: 160 }}
+            value={categoryFilter}
+            options={categoryOptions}
+            onChange={setCategoryFilter}
+          />
+          <Text type="secondary">{visibleEvents.length} / {events.length} 个事件</Text>
+        </Space>
         <Space>
           <Button icon={<FileExcelOutlined />} onClick={handleExportCSV}>导出 CSV</Button>
           <Button icon={<FileMarkdownOutlined />} onClick={handleExportMD}>导出 Markdown</Button>
@@ -115,10 +152,12 @@ export default function DocsPage() {
         <Text type="secondary">加载中...</Text>
       ) : events.length === 0 ? (
         <EmptyState scene="no_data" itemName="埋点事件" onAction={() => navigate('/events')} actionLabel="创建事件" />
+      ) : visibleEvents.length === 0 ? (
+        <Empty description="没有匹配的事件" />
       ) : (
         <Collapse
           size="small"
-          items={events.map((e) => ({
+          items={visibleEvents.map((e) => ({
             key: e.id,
             label: (
               <Space>
@@ -130,7 +169,7 @@ export default function DocsPage() {
             ),
             children: (
               <ResizableTable
-                resizeKey="docs-event-properties"
+                resizeKey="docs-event-properties-v2"
                 dataSource={propertiesMap[e.id] || []}
                 rowKey="id"
                 pagination={false}
@@ -139,7 +178,7 @@ export default function DocsPage() {
                 columns={[
                   { title: '属性名', dataIndex: 'name', key: 'name', width: 130, render: (v: string) => <code>{v}</code> },
                   { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 100, render: (v: string | null) => v || '-' },
-                  { title: '类型', dataIndex: 'type', key: 'type', width: 80, render: (v: string) => <PropertyTypeTag type={v as any} projectId={projectId!} /> },
+                  { title: '类型', dataIndex: 'type', key: 'type', width: 80, render: (v: string) => <PropertyTypeTag type={v} projectId={projectId!} /> },
                   { title: '必填', dataIndex: 'required', key: 'required', width: 55, render: (v: boolean) => v ? '是' : '否' },
                   { title: '说明', dataIndex: 'description', key: 'description', render: (v: string | null) => v || '-' },
                   { title: '示例值', dataIndex: 'example_value', key: 'example_value', render: (v: string | null) => v || '-' },

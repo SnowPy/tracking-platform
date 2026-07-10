@@ -491,7 +491,101 @@ code {
   align-self: end;
 }
 
+/* 管理页面通用布局 */
+.management-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.management-page-header h2 {
+  margin: 0;
+}
+
+.management-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.management-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 16px;
+}
+
+.management-form-span-2 {
+  grid-column: 1 / -1;
+}
+
+.management-identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.management-identity code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-list-table-scroll {
+  max-width: 100%;
+}
+
+.dashboard-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.dashboard-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+
+.dashboard-list-item:last-child {
+  border-bottom: 0;
+}
+
+.dashboard-list-item:hover strong,
+.dashboard-list-item:focus-visible strong {
+  color: #4f46e5;
+}
+
+.dashboard-list-item:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
 @media (max-width: 900px) {
+  .management-page-header {
+    align-items: flex-start;
+  }
+
+  .management-form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .management-form-span-2 {
+    grid-column: auto;
+  }
+
   .requirement-property-summary {
     grid-template-columns: minmax(180px, 1fr) auto;
   }
@@ -512,6 +606,14 @@ code {
 }
 
 @media (max-width: 1100px) {
+  .event-list-table-scroll {
+    overflow-x: hidden;
+  }
+
+  .event-list-table-scroll .event-list-secondary-column {
+    display: none;
+  }
+
   .requirement-card-row .ant-card-body {
     grid-template-columns: minmax(240px, 1fr) auto 32px;
   }

@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Card, Descriptions, Button, Space, Popconfirm, Tag, message, Select } from 'antd'
-import { ArrowLeftOutlined } from '@ant-design/icons'
+import { Button, Card, Descriptions, Empty, message, Modal, Popconfirm, Select, Space, Tag, Typography } from 'antd'
+import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import { getEventById, updateEvent, deleteEvent } from '../../api/events'
 import { getEventProperties, createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
-import StatusBadge from '../../components/StatusBadge'
 import PropertyTable from '../../components/PropertyTable'
 import type { TrackingEvent, EventProperty, EventStatus } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
 import type { PropertyItem } from '../../components/PropertyTable'
 import { useProjectStore } from '../../stores/projectStore'
+import EventFormModal from './EventFormModal'
+import { formatError } from '../../utils/errors'
+
+const { Text } = Typography
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -19,8 +22,10 @@ export default function EventDetailPage() {
   const [properties, setProperties] = useState<EventProperty[]>([])
   const [loading, setLoading] = useState(true)
   const [updatingStatus, setUpdatingStatus] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [modal, modalContextHolder] = Modal.useModal()
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!id) return
     setLoading(true)
     try {
@@ -30,27 +35,41 @@ export default function EventDetailPage() {
       ])
       setEvent(eventData)
       setProperties(propData)
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
-  useEffect(() => { loadData() }, [id])
+  // Initial and route-driven fetching intentionally updates page state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadData() }, [loadData])
 
-  const handleStatusChange = async (status: EventStatus) => {
+  const commitStatusChange = async (status: EventStatus) => {
     if (!id) return
     setUpdatingStatus(true)
     try {
       await updateEvent(id, { status })
       message.success('状态已更新')
       await loadData()
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     } finally {
       setUpdatingStatus(false)
     }
+  }
+
+  const handleStatusChange = (status: EventStatus) => {
+    if (!event || status === event.status) return
+    const nextStatusLabel = status === 'draft' ? '草稿' : status === 'active' ? '启用' : '废弃'
+    modal.confirm({
+      title: '确认变更事件状态？',
+      content: `事件状态将更新为“${nextStatusLabel}”。`,
+      okText: '确认变更',
+      cancelText: '取消',
+      onOk: () => commitStatusChange(status),
+    })
   }
 
   const handleDelete = async () => {
@@ -59,12 +78,22 @@ export default function EventDetailPage() {
       await deleteEvent(id)
       message.success('事件已删除')
       navigate('/events')
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     }
   }
 
-  if (!event) return null
+  if (loading && !event) {
+    return <Card loading style={{ minHeight: 260 }} />
+  }
+
+  if (!event) {
+    return (
+      <Empty description="未找到该事件">
+        <Button onClick={() => navigate('/events')}>返回事件列表</Button>
+      </Empty>
+    )
+  }
 
   const propItems: PropertyItem[] = properties.map((p) => ({
     id: p.id,
@@ -77,7 +106,9 @@ export default function EventDetailPage() {
   }))
 
   return (
-    <div>
+    <>
+      {modalContextHolder}
+      <div>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/events')} style={{ padding: 0, marginBottom: 16 }}>
         返回事件列表
       </Button>
@@ -85,27 +116,24 @@ export default function EventDetailPage() {
       <Card loading={loading} style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ flex: 1 }}>
-            <h2 style={{ marginBottom: 16 }}>
-              <code style={{ fontSize: 18, background: '#f5f5f5', padding: '2px 8px', borderRadius: 4 }}>{event.name}</code>
-              <span style={{ marginLeft: 12, color: '#666' }}>{event.display_name}</span>
-            </h2>
+            <div style={{ marginBottom: 16 }}>
+              <h2 style={{ margin: '0 0 4px' }}>{event.display_name}</h2>
+              <Text code>{event.name}</Text>
+            </div>
             <Descriptions column={2} size="small">
               <Descriptions.Item label="状态">
-                <Space>
-                  <StatusBadge status={event.status} type="event" />
-                  <Select
-                    size="small"
-                    value={event.status}
-                    loading={updatingStatus}
-                    onChange={handleStatusChange}
-                    style={{ width: 90 }}
-                    options={[
-                      { value: 'draft', label: '草稿' },
-                      { value: 'active', label: '启用' },
-                      { value: 'deprecated', label: '废弃' },
-                    ]}
-                  />
-                </Space>
+                <Select
+                  size="small"
+                  value={event.status}
+                  loading={updatingStatus}
+                  onChange={handleStatusChange}
+                  style={{ width: 96 }}
+                  options={[
+                    { value: 'draft', label: '草稿' },
+                    { value: 'active', label: '启用' },
+                    { value: 'deprecated', label: '废弃' },
+                  ]}
+                />
               </Descriptions.Item>
               <Descriptions.Item label="分类">{event.categories?.name || '-'}</Descriptions.Item>
               <Descriptions.Item label="目标平台">
@@ -136,9 +164,12 @@ export default function EventDetailPage() {
               </div>
             )}
           </div>
-          <Popconfirm title="确定删除此事件？" onConfirm={handleDelete} okText="确定" cancelText="取消">
-            <Button danger>删除事件</Button>
-          </Popconfirm>
+          <Space>
+            <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>编辑事件</Button>
+            <Popconfirm title="确定删除此事件？" description="关联属性也会被删除，此操作无法恢复。" onConfirm={handleDelete} okText="确定删除" cancelText="取消">
+              <Button danger>删除事件</Button>
+            </Popconfirm>
+          </Space>
         </div>
       </Card>
 
@@ -147,7 +178,7 @@ export default function EventDetailPage() {
           dataSource={propItems}
           showRequired
           projectId={projectId!}
-          resizeKey="event-detail-properties"
+          resizeKey="event-detail-properties-v2"
           onCreate={async (values) => {
             await createEventProperty({ project_id: projectId!, event_id: id!, ...values })
             await loadData()
@@ -162,6 +193,20 @@ export default function EventDetailPage() {
           }}
         />
       </Card>
-    </div>
+      </div>
+
+      <EventFormModal
+        open={editing}
+        editingRecord={event}
+        projectId={projectId!}
+        onSubmit={async (values) => {
+          await updateEvent(event.id, values)
+          message.success('事件信息已更新')
+          setEditing(false)
+          await loadData()
+        }}
+        onCancel={() => setEditing(false)}
+      />
+    </>
   )
 }

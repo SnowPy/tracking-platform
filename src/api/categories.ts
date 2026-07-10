@@ -30,17 +30,17 @@ export async function getCategoryTree(projectId: string) {
   return roots
 }
 
-export async function createCategory(data: { project_id: string; name: string; description?: string; parent_id?: string | null }) {
+export async function createCategory(data: { project_id: string; name: string; description?: string; parent_id?: string | null; sort_order?: number }) {
   const { data: result, error } = await supabase
     .from('categories')
-    .insert({ ...data, sort_order: 0 })
+    .insert({ ...data, sort_order: data.sort_order ?? 0 })
     .select()
     .single()
   if (error) throw error
   return result
 }
 
-export async function updateCategory(id: string, data: { name?: string; description?: string; parent_id?: string | null }) {
+export async function updateCategory(id: string, data: { name?: string; description?: string; parent_id?: string | null; sort_order?: number }) {
   const { data: result, error } = await supabase
     .from('categories')
     .update(data)

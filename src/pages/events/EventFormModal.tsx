@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Modal, Form, Input, Select, TreeSelect, message } from 'antd'
+import { Divider, Form, Input, message, Modal, Select, TreeSelect } from 'antd'
 import { getCategories } from '../../api/categories'
 import type { TrackingEvent, Category, EventStatus, Platform } from '../../types'
 import { PLATFORM_OPTIONS } from '../../types'
+import { formatError } from '../../utils/errors'
 
 const { TextArea } = Input
 
@@ -21,6 +22,12 @@ interface EventFormModalProps {
     notes?: string
   }) => Promise<void>
   onCancel: () => void
+}
+
+interface CategoryTreeOption {
+  value: string
+  title: string
+  children: CategoryTreeOption[]
 }
 
 export default function EventFormModal({ open, editingRecord, projectId, onSubmit, onCancel }: EventFormModalProps) {
@@ -49,14 +56,25 @@ export default function EventFormModal({ open, editingRecord, projectId, onSubmi
       setSubmitting(true)
       await onSubmit(values)
       form.resetFields()
-    } catch (err: any) {
-      if (err.message) message.error(err.message)
+    } catch (error: unknown) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) message.error(formatError(error))
     } finally {
       setSubmitting(false)
     }
   }
 
-  const categoryTree = categories.map((c) => ({ value: c.id, title: c.name, label: c.name }))
+  const categoryMap = new Map<string, CategoryTreeOption>(categories.map((category) => [category.id, {
+    value: category.id,
+    title: category.name,
+    children: [],
+  }]))
+  const categoryTree: CategoryTreeOption[] = []
+  categories.forEach((category) => {
+    const node = categoryMap.get(category.id)!
+    const parent = category.parent_id ? categoryMap.get(category.parent_id) : undefined
+    if (parent) parent.children.push(node)
+    else categoryTree.push(node)
+  })
 
   return (
     <Modal
@@ -65,46 +83,62 @@ export default function EventFormModal({ open, editingRecord, projectId, onSubmi
       onOk={handleOk}
       onCancel={onCancel}
       confirmLoading={submitting}
-      destroyOnClose
-      width={560}
+      okText={editingRecord ? '保存修改' : '创建事件'}
+      cancelText="取消"
+      mask={{ closable: !submitting }}
+      destroyOnHidden
+      forceRender
+      width="min(760px, calc(100vw - 32px))"
+      styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', paddingRight: 12 } }}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-        <Form.Item name="name" label="事件标识" rules={[
-          { required: true, message: '请输入事件标识' },
-          { pattern: /^[a-z][a-z0-9_]*$/, message: '请使用小写字母、数字、下划线，且以字母开头' },
-        ]}>
-          <Input placeholder="如 page_view, button_click" />
-        </Form.Item>
-        <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
-          <Input placeholder="如 页面浏览、按钮点击" />
-        </Form.Item>
-        <Form.Item name="category_id" label="分类">
-          <TreeSelect treeData={categoryTree} placeholder="选择分类" allowClear />
-        </Form.Item>
-        <Form.Item name="status" label="状态" rules={[{ required: true }]}>
-          <Select options={[
-            { value: 'draft', label: '草稿' },
-            { value: 'active', label: '启用' },
-            { value: 'deprecated', label: '废弃' },
-          ]} />
-        </Form.Item>
-        <Form.Item name="description" label="描述">
-          <TextArea rows={3} placeholder="事件描述：触发时机、业务场景等" />
-        </Form.Item>
-        <Form.Item name="trigger_timing" label="触发时机">
-          <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
-        </Form.Item>
-        <Form.Item name="platforms" label="目标平台">
-          <Select
-            mode="multiple"
-            placeholder="选择平台"
-            allowClear
-            options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
-          />
-        </Form.Item>
-        <Form.Item name="notes" label="备注">
-          <TextArea rows={2} placeholder="补充说明" />
-        </Form.Item>
+        <Divider titlePlacement="start" plain>基础信息</Divider>
+        <div className="management-form-grid">
+          <Form.Item name="display_name" label="显示名称" rules={[{ required: true, message: '请输入显示名称' }]}>
+            <Input placeholder="如 页面浏览、按钮点击" />
+          </Form.Item>
+          <Form.Item name="name" label="事件标识" rules={[
+            { required: true, message: '请输入事件标识' },
+            { pattern: /^[a-z][a-z0-9_]*$/, message: '请使用小写字母、数字、下划线，且以字母开头' },
+          ]}>
+            <Input disabled={Boolean(editingRecord)} placeholder="如 page_view, button_click" />
+          </Form.Item>
+          <Form.Item name="category_id" label="分类">
+            <TreeSelect treeData={categoryTree} placeholder="选择分类" allowClear treeDefaultExpandAll />
+          </Form.Item>
+          <Form.Item name="status" label="状态" rules={[{ required: true }]}>
+            <Select options={[
+              { value: 'draft', label: '草稿' },
+              { value: 'active', label: '启用' },
+              { value: 'deprecated', label: '废弃' },
+            ]} />
+          </Form.Item>
+        </div>
+
+        <Divider titlePlacement="start" plain>行为定义</Divider>
+        <div className="management-form-grid">
+          <Form.Item className="management-form-span-2" name="description" label="业务说明">
+            <TextArea rows={2} placeholder="说明事件追踪的业务行为和分析目的" />
+          </Form.Item>
+          <Form.Item className="management-form-span-2" name="trigger_timing" label="触发时机">
+            <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
+          </Form.Item>
+        </div>
+
+        <Divider titlePlacement="start" plain>交付范围</Divider>
+        <div className="management-form-grid">
+          <Form.Item className="management-form-span-2" name="platforms" label="目标平台">
+            <Select
+              mode="multiple"
+              placeholder="选择平台"
+              allowClear
+              options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+            />
+          </Form.Item>
+          <Form.Item className="management-form-span-2" name="notes" label="备注">
+            <TextArea rows={2} placeholder="补充说明" />
+          </Form.Item>
+        </div>
       </Form>
     </Modal>
   )

@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Space, List, Tag, Typography, theme, message, Button } from 'antd'
+import { Row, Col, Card, Statistic, Space, Tag, Typography, theme, message, Button } from 'antd'
 import {
   ThunderboltOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   FileTextOutlined, RightOutlined,
@@ -35,6 +35,15 @@ export default function DashboardPage() {
   const [pendingReqs, setPendingReqs] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(true)
 
+  const getNavigationCardProps = (path: string) => ({
+    role: 'link',
+    tabIndex: 0,
+    onClick: () => navigate(path),
+    onKeyDown: (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key === 'Enter' || event.key === ' ') navigate(path)
+    },
+  })
+
   useEffect(() => {
     const load = async () => {
       if (!projectId) return
@@ -46,7 +55,7 @@ export default function DashboardPage() {
         ])
         setStats(eventStats)
         setRecentEvents(events)
-        setPendingReqs(reqs.filter((r) => r.status === 'pending' || r.status === 'in_progress').slice(0, 5))
+        setPendingReqs(reqs.filter((r) => r.status === 'pending' || r.status === 'in_progress'))
       } catch (err) {
         message.error('加载仪表盘数据失败，请刷新页面重试')
         console.error('Dashboard load error:', err)
@@ -69,7 +78,7 @@ export default function DashboardPage() {
       {/* 统计卡片 */}
       <Row gutter={[12, 12]}>
         <Col xs={12} md={6}>
-          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
+          <Card hoverable {...getNavigationCardProps('/events')} loading={loading} style={cardStyle}>
             <Statistic
               title="事件总数"
               value={stats.total}
@@ -79,35 +88,35 @@ export default function DashboardPage() {
           </Card>
         </Col>
         <Col xs={12} md={6}>
-          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
+          <Card hoverable {...getNavigationCardProps('/events?status=active')} loading={loading} style={cardStyle}>
             <Statistic
               title="启用中"
               value={stats.active}
               prefix={<CheckCircleOutlined />}
               suffix="个"
-              valueStyle={{ color: token.colorSuccess }}
+              styles={{ content: { color: token.colorSuccess } }}
             />
           </Card>
         </Col>
         <Col xs={12} md={6}>
-          <Card hoverable onClick={() => navigate('/events')} loading={loading} style={cardStyle}>
+          <Card hoverable {...getNavigationCardProps('/events?status=deprecated')} loading={loading} style={cardStyle}>
             <Statistic
               title="已废弃"
               value={stats.deprecated}
               prefix={<ExclamationCircleOutlined />}
               suffix="个"
-              valueStyle={{ color: token.colorWarning }}
+              styles={{ content: { color: token.colorWarning } }}
             />
           </Card>
         </Col>
         <Col xs={12} md={6}>
-          <Card hoverable onClick={() => navigate('/requirements')} loading={loading} style={cardStyle}>
+          <Card hoverable {...getNavigationCardProps('/requirements')} loading={loading} style={cardStyle}>
             <Statistic
               title="待处理需求"
               value={pendingReqs.length}
               prefix={<FileTextOutlined />}
               suffix="个"
-              valueStyle={{ color: token.colorPrimary }}
+              styles={{ content: { color: token.colorPrimary } }}
             />
           </Card>
         </Col>
@@ -125,34 +134,20 @@ export default function DashboardPage() {
             {recentEvents.length === 0 ? (
               <EmptyState scene="no_data" itemName="事件" onAction={() => navigate('/events')} actionLabel="前往创建" />
             ) : (
-              <List
-                dataSource={recentEvents}
-                renderItem={(item) => (
-                  <List.Item
-                    style={{ cursor: 'pointer' }}
-                    onClick={() => navigate(`/events/${item.id}`)}
-                  >
-                    <List.Item.Meta
-                      title={
-                        <div style={{ minWidth: 0 }}>
-                          <Text strong ellipsis={{ tooltip: item.display_name || item.name }} style={{ display: 'block' }}>
-                            {item.display_name || item.name}
-                          </Text>
-                          <Text code ellipsis={{ tooltip: item.name }} style={{ display: 'block', maxWidth: '100%' }}>
-                            {item.name}
-                          </Text>
-                        </div>
-                      }
-                      description={
-                        <Space>
-                          <StatusBadge status={item.status} type="event" />
-                          {item.categories?.name && <Tag>{item.categories.name}</Tag>}
-                        </Space>
-                      }
-                    />
-                  </List.Item>
-                )}
-              />
+              <div className="dashboard-list">
+                {recentEvents.map((item) => (
+                  <button key={item.id} type="button" className="dashboard-list-item" onClick={() => navigate(`/events/${item.id}`)}>
+                    <span className="management-identity">
+                      <Text strong ellipsis={{ tooltip: item.display_name || item.name }}>{item.display_name || item.name}</Text>
+                      <Text code ellipsis={{ tooltip: item.name }}>{item.name}</Text>
+                    </span>
+                    <Space size={4} wrap>
+                      <StatusBadge status={item.status} type="event" />
+                      {item.categories?.name && <Tag>{item.categories.name}</Tag>}
+                    </Space>
+                  </button>
+                ))}
+              </div>
             )}
           </Card>
         </Col>
@@ -166,21 +161,16 @@ export default function DashboardPage() {
             {pendingReqs.length === 0 ? (
               <EmptyState scene="no_data" itemName="待处理需求" onAction={() => navigate('/requirements')} actionLabel="提交需求" />
             ) : (
-              <List
-                dataSource={pendingReqs}
-                renderItem={(item) => (
-                  <List.Item style={{ cursor: 'pointer' }} onClick={() => navigate(`/requirements/${item.id}`)}>
-                    <List.Item.Meta
-                      title={
-                        <Text strong ellipsis={{ tooltip: item.title }} style={{ display: 'block' }}>
-                          {item.title}
-                        </Text>
-                      }
-                      description={<StatusBadge status={item.status} type="requirement" />}
-                    />
-                  </List.Item>
-                )}
-              />
+              <div className="dashboard-list">
+                {pendingReqs.slice(0, 5).map((item) => (
+                  <button key={item.id} type="button" className="dashboard-list-item" onClick={() => navigate(`/requirements/${item.id}`)}>
+                    <Text strong ellipsis={{ tooltip: item.display_name || item.event_name || item.title }}>
+                      {item.display_name || item.event_name || item.title}
+                    </Text>
+                    <StatusBadge status={item.status} type="requirement" />
+                  </button>
+                ))}
+              </div>
             )}
           </Card>
         </Col>

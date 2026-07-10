@@ -1,12 +1,13 @@
-import { useState } from 'react'
-import { Button, Space, Modal, Form, Input, Select, Switch, Popconfirm, message, Tooltip, Tag } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { useMemo, useState } from 'react'
+import { Button, Divider, Form, Input, message, Modal, Popconfirm, Select, Space, Switch, Tag, Tooltip } from 'antd'
+import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { PropertyType, Platform } from '../types'
 import { PLATFORM_OPTIONS } from '../types'
 import PropertyTypeTag, { usePropertyTypeOptions } from './PropertyTypeTag'
 import EmptyState from './EmptyState'
 import ResizableTable from './ResizableTable'
+import { formatError } from '../utils/errors'
 
 const { TextArea } = Input
 
@@ -50,7 +51,21 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PropertyItem | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [search, setSearch] = useState('')
+  const [typeFilter, setTypeFilter] = useState<string>()
+  const [platformFilter, setPlatformFilter] = useState<Platform>()
   const [form] = Form.useForm()
+
+  const filteredData = useMemo(() => {
+    const keyword = search.trim().toLowerCase()
+    return dataSource.filter((property) => {
+      const matchesSearch = !keyword || [property.name, property.display_name, property.description]
+        .some((value) => value?.toLowerCase().includes(keyword))
+      const matchesType = !typeFilter || property.type === typeFilter
+      const matchesPlatform = !platformFilter || property.platforms?.includes(platformFilter)
+      return matchesSearch && matchesType && matchesPlatform
+    })
+  }, [dataSource, platformFilter, search, typeFilter])
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
@@ -86,8 +101,8 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
         message.success('创建成功')
       }
       setModalOpen(false)
-    } catch (err: any) {
-      if (err.message) message.error(err.message)
+    } catch (error: unknown) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) message.error(formatError(error))
     } finally {
       setSubmitting(false)
     }
@@ -97,8 +112,8 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
     try {
       await onDelete(id)
       message.success('删除成功')
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     }
   }
 
@@ -136,12 +151,16 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
       render: (text: string | null) => text ? <Tooltip title={text}>{text}</Tooltip> : '-',
     },
     {
-      title: '操作', key: 'actions', width: 120,
+      title: '操作', key: 'actions', width: 96, fixed: 'right',
       render: (_, record) => (
         <Space size="small">
-          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleOpenEdit(record)} />
+          <Tooltip title="编辑属性">
+            <Button type="text" size="small" icon={<EditOutlined />} aria-label={`编辑属性 ${record.name}`} onClick={() => handleOpenEdit(record)} />
+          </Tooltip>
           <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)} okText="确定" cancelText="取消">
-            <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+            <Tooltip title="删除属性">
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} aria-label={`删除属性 ${record.name}`} />
+            </Tooltip>
           </Popconfirm>
         </Space>
       ),
@@ -150,19 +169,49 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
 
   return (
     <>
-      <div style={{ marginBottom: 16 }}>
+      <div className="management-filter-bar">
         <Button type="primary" icon={<PlusOutlined />} onClick={handleOpenCreate}>
           添加属性
         </Button>
+        <Input
+          allowClear
+          prefix={<SearchOutlined />}
+          placeholder="搜索属性名、显示名或说明"
+          style={{ width: 240 }}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+        <Select
+          allowClear
+          placeholder="全部类型"
+          style={{ width: 130 }}
+          value={typeFilter}
+          options={typeOptions}
+          onChange={setTypeFilter}
+        />
+        <Select
+          allowClear
+          placeholder="全部平台"
+          style={{ width: 130 }}
+          value={platformFilter}
+          options={PLATFORM_OPTIONS.map((platform) => ({ value: platform.value, label: platform.label }))}
+          onChange={setPlatformFilter}
+        />
       </div>
       <ResizableTable
         resizeKey={resizeKey}
         columns={columns}
-        dataSource={dataSource}
+        dataSource={filteredData}
         rowKey="id"
         loading={loading}
-        pagination={false}
+        pagination={{
+          pageSize: 10,
+          hideOnSinglePage: true,
+          showSizeChanger: false,
+          showTotal: (total) => `共 ${total} 个属性`,
+        }}
         size="middle"
+        scroll={{ x: 900 }}
         locale={{ emptyText: <EmptyState scene="no_data" itemName="属性" onAction={handleOpenCreate} actionLabel="添加属性" /> }}
       />
       <Modal
@@ -171,40 +220,57 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
         onOk={handleSubmit}
         onCancel={() => setModalOpen(false)}
         confirmLoading={submitting}
-        destroyOnClose
+        okText={editingRecord ? '保存修改' : '添加属性'}
+        cancelText="取消"
+        mask={{ closable: !submitting }}
+        destroyOnHidden
+        forceRender
+        width="min(760px, calc(100vw - 32px))"
+        styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', paddingRight: 12 } }}
       >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="属性名" rules={[{ required: true, message: '请输入属性名' }]}>
-            <Input placeholder="如 user_id, page_url（英文标识）" />
-          </Form.Item>
-          <Form.Item name="display_name" label="显示名">
-            <Input placeholder="如 用户ID, 页面URL（中文显示）" />
-          </Form.Item>
-          <Form.Item name="type" label="类型" rules={[{ required: true }]}>
-            <Select options={typeOptions} />
-          </Form.Item>
-          <Form.Item name="description" label="说明">
-            <TextArea rows={2} placeholder="属性说明" />
-          </Form.Item>
-          {showRequired && (
-            <Form.Item name="required" label="是否必填" valuePropName="checked">
-              <Switch />
+          <Divider titlePlacement="start" plain>基础信息</Divider>
+          <div className="management-form-grid">
+            <Form.Item name="display_name" label="显示名">
+              <Input placeholder="如 用户ID、页面URL" />
             </Form.Item>
-          )}
-          <Form.Item name="example_value" label="示例值">
-            <Input placeholder="示例值" />
-          </Form.Item>
-          <Form.Item name="platforms" label="目标平台">
-            <Select
-              mode="multiple"
-              placeholder="选择平台"
-              allowClear
-              options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
-            />
-          </Form.Item>
-          <Form.Item name="notes" label="备注">
-            <TextArea rows={2} placeholder="补充说明" />
-          </Form.Item>
+            <Form.Item name="name" label="属性名" rules={[{ required: true, message: '请输入属性名' }]}>
+              <Input disabled={Boolean(editingRecord)} placeholder="如 user_id、page_url" />
+            </Form.Item>
+            <Form.Item name="type" label="类型" rules={[{ required: true }]}>
+              <Select options={typeOptions} />
+            </Form.Item>
+            <Form.Item name="example_value" label="示例值">
+              <Input placeholder="如 vip、42、true" />
+            </Form.Item>
+          </div>
+
+          <Divider titlePlacement="start" plain>使用定义</Divider>
+          <div className="management-form-grid">
+            <Form.Item className="management-form-span-2" name="description" label="说明">
+              <TextArea rows={2} placeholder="描述属性含义、取值范围或使用场景" />
+            </Form.Item>
+            {showRequired ? (
+              <Form.Item name="required" label="是否必填" valuePropName="checked">
+                <Switch checkedChildren="必填" unCheckedChildren="可选" />
+              </Form.Item>
+            ) : null}
+          </div>
+
+          <Divider titlePlacement="start" plain>交付范围</Divider>
+          <div className="management-form-grid">
+            <Form.Item className="management-form-span-2" name="platforms" label="目标平台">
+              <Select
+                mode="multiple"
+                placeholder="选择平台"
+                allowClear
+                options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+              />
+            </Form.Item>
+            <Form.Item className="management-form-span-2" name="notes" label="备注">
+              <TextArea rows={2} placeholder="补充说明" />
+            </Form.Item>
+          </div>
         </Form>
       </Modal>
     </>

@@ -11,7 +11,7 @@ export async function getPropertyTypes(projectId: string): Promise<PropertyTypeC
   return data
 }
 
-export async function createPropertyType(data: { project_id: string; value: string; label: string; color?: string }) {
+export async function createPropertyType(data: { project_id: string; value: string; label: string; color?: string; sort_order?: number }) {
   const { data: result, error } = await supabase
     .from('property_types')
     .insert(data)

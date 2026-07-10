@@ -19,8 +19,6 @@ import { useAuthStore } from '../stores/authStore'
 import { useProjectStore } from '../stores/projectStore'
 
 const { Header, Sider, Content } = Layout
-const MAIN_MIN_WIDTH = 900
-
 const menuItems = [
   {
     type: 'group' as const,
@@ -107,7 +105,7 @@ export default function MainLayout() {
           style={{ border: 'none', marginTop: 8 }}
         />
       </Sider>
-      <Layout style={{ minWidth: MAIN_MIN_WIDTH }}>
+      <Layout style={{ minWidth: 0 }}>
         <Header style={{
           padding: '0 24px',
           background: token.colorBgContainer,

@@ -2,6 +2,7 @@ import { supabase } from '../supabase/client'
 import type { TrackingEvent } from '../types'
 
 const PAGE_SIZE = 20
+const FULL_LIST_PAGE_SIZE = 1000
 
 interface EventListParams {
   projectId: string
@@ -37,6 +38,26 @@ export async function getEvents(params: EventListParams): Promise<EventListResul
   const { data, error, count } = await query
   if (error) throw error
   return { data: data as TrackingEvent[], count: count ?? 0 }
+}
+
+export async function getAllEvents(projectId: string): Promise<TrackingEvent[]> {
+  const events: TrackingEvent[] = []
+  let start = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('events')
+      .select('*, categories(id, name)')
+      .eq('project_id', projectId)
+      .order('created_at', { ascending: false })
+      .range(start, start + FULL_LIST_PAGE_SIZE - 1)
+
+    if (error) throw error
+    const page = data as TrackingEvent[]
+    events.push(...page)
+    if (page.length < FULL_LIST_PAGE_SIZE) return events
+    start += FULL_LIST_PAGE_SIZE
+  }
 }
 
 export async function getEventById(id: string) {

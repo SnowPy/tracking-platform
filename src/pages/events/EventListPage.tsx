@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Card, Button, Input, Select, Space, Popconfirm, Tag, message, Dropdown } from 'antd'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { Button, Card, Dropdown, Input, message, Popconfirm, Select, Space, Tooltip, Typography, type MenuProps } from 'antd'
 import { PlusOutlined, SearchOutlined, DeleteOutlined, EyeOutlined, MoreOutlined, EditOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { getEvents, createEvent, updateEvent, deleteEvent } from '../../api/events'
@@ -13,41 +13,54 @@ import { PLATFORM_OPTIONS } from '../../types'
 import EventFormModal from './EventFormModal'
 import { useProjectStore } from '../../stores/projectStore'
 import { useDebounce } from '../../hooks/useDebounce'
+import { formatError } from '../../utils/errors'
+
+const { Text } = Typography
+
+const EVENT_STATUS_OPTIONS = [
+  { value: 'draft', label: '草稿' },
+  { value: 'active', label: '启用' },
+  { value: 'deprecated', label: '废弃' },
+] satisfies { value: EventStatus; label: string }[]
+
+function getInitialStatus(search: string): EventStatus | undefined {
+  const status = new URLSearchParams(search).get('status')
+  return EVENT_STATUS_OPTIONS.some((option) => option.value === status) ? status as EventStatus : undefined
+}
 
 export default function EventListPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const projectId = useProjectStore((s) => s.currentProjectId)
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState<{ category_id?: string; status?: string; search?: string }>({})
+  const [filters, setFilters] = useState<{ category_id?: string; status?: EventStatus; search?: string }>(() => ({
+    status: getInitialStatus(location.search),
+  }))
   const [searchInput, setSearchInput] = useState('')
   const debouncedSearch = useDebounce(searchInput, 300)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<TrackingEvent | null>(null)
 
-  // 防抖搜索值变化时更新 filters
-  useEffect(() => {
-    setFilters((f) => ({ ...f, search: debouncedSearch || undefined }))
-    setPage(1)
-  }, [debouncedSearch])
-
   const loadData = useCallback(async () => {
     if (!projectId) return
     setLoading(true)
     try {
-      const { data, count } = await getEvents({ projectId, ...filters, page })
+      const { data, count } = await getEvents({ projectId, ...filters, search: debouncedSearch || undefined, page })
       setEvents(data)
       setTotal(count)
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     } finally {
       setLoading(false)
     }
-  }, [projectId, page, filters])
+  }, [debouncedSearch, projectId, page, filters])
 
+  // Initial and filter-driven fetching intentionally updates page state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { loadData() }, [loadData])
   useEffect(() => {
     if (projectId) {
@@ -91,43 +104,48 @@ export default function EventListPage() {
       await deleteEvent(id)
       message.success('删除成功')
       await loadData()
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error: unknown) {
+      message.error(formatError(error))
     }
   }
 
   const columns: ColumnsType<TrackingEvent> = [
-    { title: '事件标识', dataIndex: 'name', key: 'name', width: 160,
-      render: (name: string) => <code style={{ fontSize: 13 }}>{name}</code>,
-    },
-    { title: '显示名称', dataIndex: 'display_name', key: 'display_name', width: 140 },
     {
-      title: '分类', dataIndex: ['categories', 'name'], key: 'category', width: 120,
+      title: '事件', key: 'event', width: 210,
+      render: (_: unknown, record: TrackingEvent) => (
+        <div className="management-identity">
+          <Text strong ellipsis={{ tooltip: record.display_name }}>{record.display_name}</Text>
+          <Text code ellipsis={{ tooltip: record.name }}>{record.name}</Text>
+        </div>
+      ),
+    },
+    {
+      title: '分类', dataIndex: ['categories', 'name'], key: 'category', width: 100,
       render: (name: string | undefined) => name || '-',
     },
     {
-      title: '状态', dataIndex: 'status', key: 'status', width: 80,
+      title: '状态', dataIndex: 'status', key: 'status', width: 78,
       render: (status: EventStatus) => <StatusBadge status={status} type="event" />,
     },
-    { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true, responsive: ['sm' as const] as ('sm')[] },
+    { title: '业务说明', dataIndex: 'description', key: 'description', width: 180, ellipsis: true, className: 'event-list-secondary-column', render: (value: string | null) => value || '-' },
     {
-      title: '平台', key: 'platforms', width: 130, responsive: ['md' as const] as ('md')[],
-      render: (_: unknown, r: TrackingEvent) => (r.platforms || []).map((p: string) => {
-        const opt = PLATFORM_OPTIONS.find(o => o.value === p)
-        return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
-      }),
+      title: '平台', key: 'platforms', width: 120, className: 'event-list-secondary-column',
+      render: (_: unknown, record: TrackingEvent) => {
+        const labels = (record.platforms || []).map((platform) => (
+          PLATFORM_OPTIONS.find((option) => option.value === platform)?.label || platform
+        ))
+        return labels.length > 0 ? labels.join(' / ') : '-'
+      },
     },
-    { title: '触发时机', dataIndex: 'trigger_timing', key: 'trigger_timing', width: 120, ellipsis: true, render: (v: string) => v || '-', responsive: ['md' as const] as ('md')[] },
     {
-      title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180, responsive: ['lg' as const] as ('lg')[],
+      title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 150,
       render: (val: string) => val ? new Date(val).toLocaleString('zh-CN') : '-',
     },
     {
-      title: '操作', key: 'actions', width: 130,
+      title: '操作', key: 'actions', width: 110,
       render: (_, record) => {
-        const menuItems = {
-          items: [
-            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); handleEdit(record) } },
+        const menuItems: MenuProps['items'] = [
+            { key: 'edit', icon: <EditOutlined />, label: '编辑' },
             { type: 'divider' as const },
             {
               key: 'delete',
@@ -136,17 +154,23 @@ export default function EventListPage() {
                 删除
               </Popconfirm>,
               danger: true,
-              onClick: (e: any) => { e.domEvent.stopPropagation() },
             },
-          ],
-        }
+          ]
         return (
           <Space size="small" onClick={(e) => e.stopPropagation()}>
             <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/events/${record.id}`)}>
               查看
             </Button>
-            <Dropdown menu={menuItems} trigger={['click']}>
-              <Button type="link" size="small" icon={<MoreOutlined />} onClick={(e) => e.preventDefault()} />
+            <Dropdown menu={{
+              items: menuItems,
+              onClick: ({ key, domEvent }) => {
+                domEvent.stopPropagation()
+                if (key === 'edit') handleEdit(record)
+              },
+            }} trigger={['click']}>
+              <Tooltip title="更多操作">
+                <Button type="text" size="small" icon={<MoreOutlined />} aria-label="更多操作" onClick={(e) => e.preventDefault()} />
+              </Tooltip>
             </Dropdown>
           </Space>
         )
@@ -156,24 +180,25 @@ export default function EventListPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div className="management-page-header">
         <h2>事件管理</h2>
         <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>创建事件</Button>
       </div>
       <Card>
-        <Space style={{ marginBottom: 16 }} wrap>
+        <div className="management-filter-bar">
           <Input
             placeholder="搜索事件名/显示名"
             prefix={<SearchOutlined />}
             allowClear
-            style={{ width: 220 }}
+            style={{ width: 240 }}
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            onChange={(e) => { setSearchInput(e.target.value); setPage(1) }}
           />
           <Select
             placeholder="按分类筛选"
             allowClear
             style={{ width: 160 }}
+            value={filters.category_id}
             options={categories.map((c) => ({ value: c.id, label: c.name }))}
             onChange={(val) => { setFilters((f) => ({ ...f, category_id: val })); setPage(1) }}
           />
@@ -181,35 +206,47 @@ export default function EventListPage() {
             placeholder="按状态筛选"
             allowClear
             style={{ width: 120 }}
-            options={[
-              { value: 'draft', label: '草稿' },
-              { value: 'active', label: '启用' },
-              { value: 'deprecated', label: '废弃' },
-            ]}
+            value={filters.status}
+            options={EVENT_STATUS_OPTIONS}
             onChange={(val) => { setFilters((f) => ({ ...f, status: val })); setPage(1) }}
           />
-        </Space>
-        <ResizableTable
-          resizeKey="events"
-          columns={columns}
-          dataSource={events}
-          rowKey="id"
-          loading={loading}
-          onRow={(record) => ({
-            onClick: () => navigate(`/events/${record.id}`),
-            style: { cursor: 'pointer' },
-          })}
-          pagination={{
-            current: page,
-            pageSize: 20,
-            total,
-            onChange: (p) => setPage(p),
-            showTotal: (t) => `共 ${t} 个事件`,
-          }}
-          size="middle"
-          scroll={{ x: 900 }}
-          locale={{ emptyText: <EmptyState scene="no_data" itemName="事件" onAction={handleCreate} actionLabel="创建事件" /> }}
-        />
+          {(searchInput || filters.category_id || filters.status) ? (
+            <Button onClick={() => {
+              setSearchInput('')
+              setFilters({})
+              setPage(1)
+            }}>重置</Button>
+          ) : null}
+          <Text type="secondary">共 {total} 个事件</Text>
+        </div>
+        <div className="event-list-table-scroll">
+          <ResizableTable
+            resizeKey="events-v2"
+            columns={columns}
+            dataSource={events}
+            rowKey="id"
+            loading={loading}
+            onRow={(record) => ({
+              onClick: () => navigate(`/events/${record.id}`),
+              onKeyDown: (event) => {
+                if (event.currentTarget !== event.target) return
+                if (event.key === 'Enter' || event.key === ' ') navigate(`/events/${record.id}`)
+              },
+              role: 'link',
+              tabIndex: 0,
+              style: { cursor: 'pointer' },
+            })}
+            pagination={{
+              current: page,
+              pageSize: 20,
+              total,
+              onChange: (p) => setPage(p),
+              showTotal: (t) => `共 ${t} 个事件`,
+            }}
+            size="middle"
+            locale={{ emptyText: <EmptyState scene="no_data" itemName="事件" onAction={handleCreate} actionLabel="创建事件" /> }}
+          />
+        </div>
       </Card>
 
       <EventFormModal
