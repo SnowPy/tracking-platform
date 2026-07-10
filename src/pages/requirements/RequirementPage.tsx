@@ -1,58 +1,289 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Card, Button, Segmented, Space, Tag, message, Modal, Popconfirm, Select, Input, List, Dropdown } from 'antd'
-import { PlusOutlined, DeleteOutlined, UnorderedListOutlined, AppstoreOutlined, EyeOutlined, SettingOutlined, MoreOutlined, EditOutlined, CheckOutlined, CopyOutlined } from '@ant-design/icons'
 import {
-  DndContext, closestCorners, PointerSensor, useSensor, useSensors, type DragEndEvent,
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
+import { useSearchParams } from 'react-router-dom'
+import {
+  Badge,
+  Button,
+  Input,
+  List,
+  message,
+  Modal,
+  Popconfirm,
+  Segmented,
+  Select,
+  Skeleton,
+  Space,
+  Tabs,
+  Tag,
+  Tooltip,
+  Typography,
+} from 'antd'
+import {
+  AppstoreOutlined,
+  DeleteOutlined,
+  PlusOutlined,
+  SearchOutlined,
+  SettingOutlined,
+  UnorderedListOutlined,
+} from '@ant-design/icons'
+import {
+  DndContext,
+  PointerSensor,
+  closestCorners,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
 } from '@dnd-kit/core'
-import { supabase } from '../../supabase/client'
-import { getRequirements, createRequirement, updateRequirement, deleteRequirement } from '../../api/requirements'
-import { getEventById } from '../../api/events'
-import { createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
-import { getVersions, createVersion, deleteVersion } from '../../api/versions'
+import { createRequirement, deleteRequirement, getRequirements, updateRequirement } from '../../api/requirements'
+import { syncRequirementToTrackingAsset } from '../../api/requirementSync'
+import { createVersion, deleteVersion, getVersions } from '../../api/versions'
 import type { Version } from '../../api/versions'
-import StatusBadge from '../../components/StatusBadge'
 import EmptyState from '../../components/EmptyState'
-import ResizableTable from '../../components/ResizableTable'
-import type { Requirement, RequirementStatus, RequirementPriority, ProposedProperty, Platform } from '../../types'
-import { PLATFORM_OPTIONS } from '../../types'
-import RequirementFormModal from './RequirementFormModal'
-import KanbanColumn from './KanbanColumn'
+import type {
+  Platform,
+  ProposedProperty,
+  Requirement,
+  RequirementPriority,
+  RequirementType,
+  TrackingType,
+} from '../../types'
+import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
 import { useProjectStore } from '../../stores/projectStore'
+import KanbanColumn from './KanbanColumn'
+import RequirementCard from './RequirementCard'
+import RequirementDetailDrawer from './RequirementDetailDrawer'
+import RequirementFormModal from './RequirementFormModal'
+import {
+  ACTIVE_REQUIREMENT_STATUSES,
+  REQUIREMENT_PRIORITY_META,
+  REQUIREMENT_STATUS_LABELS,
+  REQUIREMENT_TYPE_META,
+  TRACKING_TYPE_META,
+  filterRequirements,
+  sortRequirements,
+  type ActiveRequirementStatus,
+} from './requirementPresentation'
 
-const STATUSES: RequirementStatus[] = ['pending', 'in_progress', 'done']
+const { Text } = Typography
+const PREFERENCES_KEY = 'tracking-platform:requirement-workbench:v1'
 const KANBAN_COLUMN_GAP = 16
 const KANBAN_MIN_COLUMN_WIDTH = 280
 const KANBAN_FALLBACK_COLUMN_WIDTH = 360
-const STATUS_LABELS: Record<RequirementStatus, string> = {
-  pending: '待开发',
-  in_progress: '待验收',
-  done: '已完成',
-  rejected: '已拒绝',
+
+type ViewMode = 'workspace' | 'kanban'
+
+interface WorkbenchPreferences {
+  version: 1
+  viewMode: ViewMode
+  activeStatus: ActiveRequirementStatus
+  filterVersion?: string
+  filterPlatform?: Platform
+  filterTrackingType?: TrackingType
+  filterRequirementType?: RequirementType
+  filterPriority?: RequirementPriority
 }
-const PRIORITY_TAGS: Record<RequirementPriority, { color: string; label: string }> = {
-  high: { color: 'red', label: '高' },
-  medium: { color: 'orange', label: '中' },
-  low: { color: 'default', label: '低' },
+
+const DEFAULT_PREFERENCES: WorkbenchPreferences = {
+  version: 1,
+  viewMode: 'workspace',
+  activeStatus: 'pending',
+}
+
+function readPreferences(): WorkbenchPreferences {
+  try {
+    const stored = localStorage.getItem(PREFERENCES_KEY)
+    if (!stored) return DEFAULT_PREFERENCES
+
+    const parsed = JSON.parse(stored) as Partial<WorkbenchPreferences>
+    if (parsed.version !== 1) return DEFAULT_PREFERENCES
+
+    const viewMode = parsed.viewMode === 'kanban' ? 'kanban' : 'workspace'
+    const activeStatus = ACTIVE_REQUIREMENT_STATUSES.includes(parsed.activeStatus as ActiveRequirementStatus)
+      ? parsed.activeStatus as ActiveRequirementStatus
+      : 'pending'
+
+    return { ...DEFAULT_PREFERENCES, ...parsed, viewMode, activeStatus }
+  } catch {
+    return DEFAULT_PREFERENCES
+  }
+}
+
+interface RequirementCardListProps {
+  requirements: Requirement[]
+  emptyItemName: string
+  onCreate: () => void
+  onOpen: (requirement: Requirement) => void
+  onEdit: (requirement: Requirement) => void
+  onCopy: (requirement: Requirement) => void
+  onDelete: (id: string) => Promise<void>
+}
+
+function RequirementCardList({
+  requirements,
+  emptyItemName,
+  onCreate,
+  onOpen,
+  onEdit,
+  onCopy,
+  onDelete,
+}: RequirementCardListProps) {
+  if (requirements.length === 0) {
+    return (
+      <EmptyState
+        scene="no_data"
+        itemName={emptyItemName}
+        onAction={onCreate}
+        actionLabel="提交需求"
+      />
+    )
+  }
+
+  return (
+    <div className="requirement-workspace-list">
+      {requirements.map((requirement) => (
+        <RequirementCard
+          key={requirement.id}
+          requirement={requirement}
+          onOpen={onOpen}
+          onEdit={onEdit}
+          onCopy={onCopy}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  )
+}
+
+function getErrorMessage(error: unknown) {
+  if (typeof error === 'object' && error && 'message' in error) {
+    return String(error.message)
+  }
+  return '操作失败，请稍后重试'
 }
 
 export default function RequirementPage() {
-  const navigate = useNavigate()
-  const projectId = useProjectStore((s) => s.currentProjectId)
+  const projectId = useProjectStore((state) => state.currentProjectId)
   const [searchParams, setSearchParams] = useSearchParams()
+  const [initialPreferences] = useState(readPreferences)
   const [requirements, setRequirements] = useState<Requirement[]>([])
-  const [loading, setLoading] = useState(false)
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban')
+  const [allVersions, setAllVersions] = useState<Version[]>([])
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState(false)
+  const [viewMode, setViewMode] = useState<ViewMode>(initialPreferences.viewMode)
+  const [activeStatus, setActiveStatus] = useState<ActiveRequirementStatus>(initialPreferences.activeStatus)
+  const [searchText, setSearchText] = useState('')
+  const [filterVersion, setFilterVersion] = useState<string | undefined>(initialPreferences.filterVersion)
+  const [filterPlatform, setFilterPlatform] = useState<Platform | undefined>(initialPreferences.filterPlatform)
+  const [filterTrackingType, setFilterTrackingType] = useState<TrackingType | undefined>(initialPreferences.filterTrackingType)
+  const [filterRequirementType, setFilterRequirementType] = useState<RequirementType | undefined>(initialPreferences.filterRequirementType)
+  const [filterPriority, setFilterPriority] = useState<RequirementPriority | undefined>(initialPreferences.filterPriority)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<Requirement | null>(null)
   const [copyFromRecord, setCopyFromRecord] = useState<Requirement | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [filterPlatform, setFilterPlatform] = useState<Platform | undefined>()
-  const [filterVersion, setFilterVersion] = useState<string | undefined>()
-  const [allVersions, setAllVersions] = useState<Version[]>([])
   const [versionModalOpen, setVersionModalOpen] = useState(false)
   const [newVersionName, setNewVersionName] = useState('')
   const kanbanBoardRef = useRef<HTMLDivElement | null>(null)
+  const deferredSearchText = useDeferredValue(searchText)
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+  )
+
+  const loadData = useCallback(async () => {
+    if (!projectId) {
+      setRequirements([])
+      return
+    }
+
+    setLoading(true)
+    try {
+      setRequirements(await getRequirements(projectId))
+    } catch (error) {
+      message.error(getErrorMessage(error))
+    } finally {
+      setLoading(false)
+    }
+  }, [projectId])
+
+  const loadVersions = useCallback(async () => {
+    if (!projectId) {
+      setAllVersions([])
+      return
+    }
+
+    try {
+      const nextVersions = await getVersions(projectId)
+      setAllVersions(nextVersions)
+      setFilterVersion((currentVersion) => {
+        if (!currentVersion) return undefined
+        return nextVersions.some((version) => version.name === currentVersion)
+          ? currentVersion
+          : undefined
+      })
+    } catch (error) {
+      message.error(`加载版本失败：${getErrorMessage(error)}`)
+    }
+  }, [projectId])
+
+  useEffect(() => {
+    let isCancelled = false
+
+    const loadInitialData = async () => {
+      if (!projectId) return
+
+      try {
+        const [nextRequirements, nextVersions] = await Promise.all([
+          getRequirements(projectId),
+          getVersions(projectId),
+        ])
+        if (isCancelled) return
+
+        setRequirements(nextRequirements)
+        setAllVersions(nextVersions)
+        setFilterVersion((currentVersion) => {
+          if (!currentVersion) return undefined
+          return nextVersions.some((version) => version.name === currentVersion)
+            ? currentVersion
+            : undefined
+        })
+      } catch (error) {
+        if (!isCancelled) message.error(getErrorMessage(error))
+      } finally {
+        if (!isCancelled) setLoading(false)
+      }
+    }
+
+    void loadInitialData()
+    return () => { isCancelled = true }
+  }, [projectId])
+
+  useEffect(() => {
+    const preferences: WorkbenchPreferences = {
+      version: 1,
+      viewMode,
+      activeStatus,
+      filterVersion,
+      filterPlatform,
+      filterTrackingType,
+      filterRequirementType,
+      filterPriority,
+    }
+    localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences))
+  }, [
+    activeStatus,
+    filterPlatform,
+    filterPriority,
+    filterRequirementType,
+    filterTrackingType,
+    filterVersion,
+    viewMode,
+  ])
 
   useEffect(() => {
     if (viewMode !== 'kanban') return
@@ -62,18 +293,12 @@ export default function RequirementPage() {
 
     const updateColumnWidth = () => {
       const boardWidth = Math.floor(board.getBoundingClientRect().width)
-      const totalGapWidth = KANBAN_COLUMN_GAP * (STATUSES.length - 1)
-      const availableWidth = boardWidth - totalGapWidth
-      const nextWidth = Math.max(
-        KANBAN_MIN_COLUMN_WIDTH,
-        Math.floor(availableWidth / STATUSES.length),
-      )
-
+      const availableWidth = boardWidth - KANBAN_COLUMN_GAP * (ACTIVE_REQUIREMENT_STATUSES.length - 1)
+      const nextWidth = Math.max(KANBAN_MIN_COLUMN_WIDTH, Math.floor(availableWidth / ACTIVE_REQUIREMENT_STATUSES.length))
       board.style.setProperty('--kanban-column-width', `${nextWidth}px`)
     }
 
     updateColumnWidth()
-
     const observer = new ResizeObserver(updateColumnWidth)
     observer.observe(board)
     window.addEventListener('resize', updateColumnWidth)
@@ -84,232 +309,87 @@ export default function RequirementPage() {
     }
   }, [viewMode])
 
-  // 加载版本列表并默认选最新
-  const loadVersions = useCallback(async () => {
-    if (!projectId) return
-    try {
-      const versions = await getVersions(projectId)
-      setAllVersions(versions)
-      if (versions.length > 0 && !filterVersion) {
-        setFilterVersion(versions[0].name) // 默认最新
-      }
-    } catch (err) { console.error('加载版本列表失败:', err) }
-  }, [projectId])
+  const filteredRequirements = useMemo(() => {
+    const filtered = filterRequirements(requirements, {
+      query: deferredSearchText,
+      version: filterVersion,
+      platform: filterPlatform,
+      trackingType: filterTrackingType,
+      requirementType: filterRequirementType,
+      priority: filterPriority,
+    })
+    return sortRequirements(filtered)
+  }, [
+    deferredSearchText,
+    filterPlatform,
+    filterPriority,
+    filterRequirementType,
+    filterTrackingType,
+    filterVersion,
+    requirements,
+  ])
 
-  useEffect(() => { loadVersions() }, [loadVersions])
+  const groupedRequirements = useMemo(() => {
+    const groups: Record<ActiveRequirementStatus, Requirement[]> = {
+      pending: [],
+      in_progress: [],
+      done: [],
+    }
+    for (const requirement of filteredRequirements) {
+      groups[requirement.status as ActiveRequirementStatus].push(requirement)
+    }
+    return groups
+  }, [filteredRequirements])
 
-  const handleAddVersion = async () => {
-    if (!newVersionName.trim() || !projectId) return
-    try {
-      await createVersion(projectId, newVersionName.trim())
-      message.success('版本已添加')
-      setNewVersionName('')
-      await loadVersions()
-    } catch (e: any) { message.error(e.message) }
-  }
-
-  const handleDeleteVersion = async (id: string) => {
-    try {
-      await deleteVersion(id)
-      message.success('版本已删除')
-      await loadVersions()
-    } catch (e: any) { message.error(e.message) }
-  }
-
-  // 筛选后的需求
-  const filtered = requirements.filter(r => {
-    if (filterPlatform && (!r.platforms || !r.platforms.includes(filterPlatform))) return false
-    if (filterVersion && r.version !== filterVersion) return false
-    return true
-  })
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  const selectedRequirementId = searchParams.get('detail')
+  const selectedRequirement = useMemo(
+    () => requirements.find((requirement) => requirement.id === selectedRequirementId) || null,
+    [requirements, selectedRequirementId],
   )
 
-  const loadData = useCallback(async () => {
-    if (!projectId) return
-    setLoading(true)
-    try {
-      const data = await getRequirements(projectId)
-      setRequirements(data)
-    } catch (err: any) {
-      message.error(err.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [projectId])
+  const hasFilters = Boolean(
+    searchText
+    || filterVersion
+    || filterPlatform
+    || filterTrackingType
+    || filterRequirementType
+    || filterPriority,
+  )
 
-  useEffect(() => { loadData() }, [loadData])
+  const updateDetailParam = useCallback((id?: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (id) next.set('detail', id)
+    else next.delete('detail')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
-  // 检测 URL 参数 ?copy=:id（从详情页跳转过来）
-  useEffect(() => {
-    const copyId = searchParams.get('copy')
-    if (copyId && requirements.length > 0) {
-      const record = requirements.find((r) => r.id === copyId)
-      if (record) {
-        setCopyFromRecord(record)
-        setEditingRecord(null)
-        setModalOpen(true)
-        // 清除 URL 参数
-        const next = new URLSearchParams(searchParams)
-        next.delete('copy')
-        setSearchParams(next, { replace: true })
-      }
-    }
-  }, [searchParams, requirements])
+  const openDetail = (requirement: Requirement) => {
+    updateDetailParam(requirement.id)
+  }
 
-  // 需求完成时自动同步
-  const syncRequirement = async (req: Requirement) => {
-    try {
-      const trackingType = (req as any).tracking_type || 'event'
+  const closeDetail = () => {
+    updateDetailParam()
+  }
 
-      if (trackingType === 'event') {
-        // === 事件同步逻辑 ===
-        if (req.modification_type === 'new') {
-          const { data: newEvent, error: createErr } = await supabase
-            .from('events')
-            .insert({
-              project_id: projectId!,
-              name: req.event_name!,
-              display_name: req.display_name || req.title,
-              description: req.description,
-              status: 'active',
-              platforms: req.platforms || [],
-              trigger_timing: req.trigger_timing || null,
-            })
-            .select()
-            .single()
-          if (createErr) throw createErr
+  const openCreate = () => {
+    setEditingRecord(null)
+    setCopyFromRecord(null)
+    setModalOpen(true)
+  }
 
-          if (req.proposed_properties && req.proposed_properties.length > 0) {
-            await supabase.from('event_properties').insert(
-              req.proposed_properties.map((p: ProposedProperty) => ({
-                project_id: projectId!,
-                event_id: newEvent.id,
-                name: p.name,
-                display_name: p.display_name || p.name,
-                type: p.type,
-                description: p.description,
-                required: p.required,
-              }))
-            )
-          }
-          message.success(`事件「${newEvent.name}」已创建，属性已同步`)
-        } else if (req.modification_type === 'modify' && req.event_id) {
-          const { error: updateErr } = await supabase
-            .from('events')
-            .update({
-              updated_at: new Date().toISOString(),
-              platforms: req.platforms || [],
-              trigger_timing: req.trigger_timing || null,
-            })
-            .eq('id', req.event_id)
-          if (updateErr) throw updateErr
+  const openEdit = (requirement: Requirement) => {
+    if (requirement.status === 'done') return
+    closeDetail()
+    setEditingRecord(requirement)
+    setCopyFromRecord(null)
+    setModalOpen(true)
+  }
 
-          let deletedCount = 0, modifiedCount = 0, addedCount = 0
-          if (req.proposed_properties && req.proposed_properties.length > 0) {
-            for (const p of req.proposed_properties) {
-              if (p.action === 'delete' && p.existing_id) {
-                await deleteEventProperty(p.existing_id)
-                deletedCount++
-              } else if (p.action === 'modify' && p.existing_id) {
-                await updateEventProperty(p.existing_id, {
-                  name: p.name, display_name: p.display_name,
-                  type: p.type, description: p.description, required: p.required,
-                })
-                modifiedCount++
-              } else if (p.action === 'add' || !p.action) {
-                await createEventProperty({
-                  project_id: projectId!,
-                  event_id: req.event_id, name: p.name,
-                  display_name: p.display_name || p.name,
-                  type: p.type, description: p.description, required: p.required,
-                })
-                addedCount++
-              }
-            }
-          }
-          const event = await getEventById(req.event_id)
-          const parts = []
-          if (addedCount > 0) parts.push(`新增 ${addedCount} 个`)
-          if (modifiedCount > 0) parts.push(`修改 ${modifiedCount} 个`)
-          if (deletedCount > 0) parts.push(`删除 ${deletedCount} 个`)
-          message.success(`事件「${event.name}」已更新${parts.length > 0 ? '：' + parts.join('，') : ''}`)
-        }
-      } else if (trackingType === 'common_property') {
-        // === 公共属性同步逻辑 ===
-        const tableName = 'common_properties'
-        if (req.modification_type === 'new') {
-          const { data: newProp, error: createErr } = await supabase
-            .from(tableName)
-            .insert({
-              project_id: projectId!,
-              name: req.event_name!,
-              display_name: req.display_name || req.title,
-              type: (req as any).property_type || 'string',
-              description: req.description,
-              platforms: req.platforms || [],
-            })
-            .select()
-            .single()
-          if (createErr) throw createErr
-          message.success(`公共属性「${(newProp as any).name}」已创建`)
-        } else if (req.modification_type === 'modify' && req.event_id) {
-          const { error: updateErr } = await supabase
-            .from(tableName)
-            .update({
-              name: req.event_name,
-              display_name: req.display_name || req.title,
-              description: req.description,
-              platforms: req.platforms || [],
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', req.event_id)
-          if (updateErr) throw updateErr
-          message.success('公共属性已更新')
-        }
-      } else if (trackingType === 'user_property') {
-        // === 用户属性同步逻辑 ===
-        const tableName = 'user_properties'
-        if (req.modification_type === 'new') {
-          const { data: newProp, error: createErr } = await supabase
-            .from(tableName)
-            .insert({
-              project_id: projectId!,
-              name: req.event_name!,
-              display_name: req.display_name || req.title,
-              type: (req as any).property_type || 'string',
-              description: req.description,
-              platforms: req.platforms || [],
-            })
-            .select()
-            .single()
-          if (createErr) throw createErr
-          message.success(`用户属性「${(newProp as any).name}」已创建`)
-        } else if (req.modification_type === 'modify' && req.event_id) {
-          const { error: updateErr } = await supabase
-            .from(tableName)
-            .update({
-              name: req.event_name,
-              display_name: req.display_name || req.title,
-              description: req.description,
-              platforms: req.platforms || [],
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', req.event_id)
-          if (updateErr) throw updateErr
-          message.success('用户属性已更新')
-        }
-      }
-    } catch (err: any) {
-      if (err?.code === '23505') {
-        message.error(`「${req.event_name || req.display_name || req.title}」已存在，请勿重复同步`)
-      } else {
-        message.error(`同步失败: ${err.message}`)
-      }
-      return
-    }
+  const openCopy = (requirement: Requirement) => {
+    closeDetail()
+    setCopyFromRecord(requirement)
+    setEditingRecord(null)
+    setModalOpen(true)
   }
 
   const handleSubmit = async (values: {
@@ -327,285 +407,328 @@ export default function RequirementPage() {
     trigger_timing?: string | null
   }) => {
     if (editingRecord) {
-      await updateRequirement(editingRecord.id, values as any)
-      message.success('更新成功')
+      await updateRequirement(editingRecord.id, values)
+      message.success('需求已更新')
     } else {
-      await createRequirement({ project_id: projectId!, ...values } as any)
-      message.success(copyFromRecord ? '复制成功' : '需求已提交')
+      await createRequirement({ project_id: projectId!, ...values })
+      message.success(copyFromRecord ? '需求已复制' : '需求已提交')
     }
+
     setModalOpen(false)
+    setEditingRecord(null)
     setCopyFromRecord(null)
-    await loadData()
-    loadVersions()
+    await Promise.all([loadData(), loadVersions()])
   }
 
-  // 处理拖拽（状态变更）
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (!over) return
+  const handleDelete = async (id: string) => {
+    await deleteRequirement(id)
+    if (selectedRequirementId === id) closeDetail()
+    message.success('需求已删除')
+    await loadData()
+  }
 
-    const activeId = active.id as string
-    const targetStatus = over.id as RequirementStatus
-
-    if (STATUSES.includes(targetStatus)) {
-      const item = requirements.find((r) => r.id === activeId)
-      if (!item || item.status === targetStatus) return
-
-      // 如果拖到 done，询问是否同步
-      if (targetStatus === 'done') {
-        const confirmed = await new Promise<boolean>((resolve) => {
-          Modal.confirm({
-            title: '确认完成需求',
-            content: item.modification_type === 'new'
-              ? `将自动创建事件「${item.event_name}」并同步 ${item.proposed_properties?.length || 0} 个属性，确认？`
-              : `将自动更新事件属性（新增/修改/删除），确认？`,
-            onOk: () => resolve(true),
-            onCancel: () => resolve(false),
-          })
-        })
-        if (!confirmed) return
-      }
-
-      // 乐观更新
-      setRequirements((prev) =>
-        prev.map((r) => (r.id === activeId ? { ...r, status: targetStatus } : r))
-      )
-      setSyncing(true)
-      try {
-        await updateRequirement(activeId, { status: targetStatus })
-
-        // 如果变为 done，自动同步
-        if (targetStatus === 'done') {
-          const updatedItem = { ...item, status: 'done' as RequirementStatus }
-          await syncRequirement(updatedItem)
-        } else {
-          message.success(`状态已更新为「${STATUS_LABELS[targetStatus]}」`)
-        }
-      } catch (err: any) {
-        message.error(err.message)
-        await loadData()
-      } finally {
-        setSyncing(false)
-      }
+  const handleStatusUpdate = async (
+    requirement: Requirement,
+    status: ActiveRequirementStatus,
+    successMessage: string,
+  ) => {
+    setActionLoading(true)
+    try {
+      await updateRequirement(requirement.id, { status })
+      message.success(successMessage)
+      await loadData()
+    } catch (error) {
+      message.error(getErrorMessage(error))
+    } finally {
+      setActionLoading(false)
     }
   }
 
-  // 手动标记完成
-  const handleMarkDone = async (req: Requirement) => {
+  const handleApproveAndSync = async (requirement: Requirement) => {
+    if (!projectId) return
+
     const confirmed = await new Promise<boolean>((resolve) => {
       Modal.confirm({
-        title: '确认完成需求',
-        content: req.modification_type === 'new'
-          ? `将自动创建事件「${req.event_name}」并同步属性，确认？`
-          : `将自动更新事件属性（新增/修改/删除），确认？`,
+        title: '验收通过并同步？',
+        content: `将把「${requirement.display_name || requirement.title}」同步到埋点资产。同步成功后需求才会进入已完成。`,
+        okText: '验收并同步',
+        cancelText: '取消',
         onOk: () => resolve(true),
         onCancel: () => resolve(false),
       })
     })
     if (!confirmed) return
 
-    setSyncing(true)
+    setActionLoading(true)
     try {
-      await updateRequirement(req.id, { status: 'done' })
-      const updatedItem = { ...req, status: 'done' as RequirementStatus }
-      await syncRequirement(updatedItem)
+      const result = await syncRequirementToTrackingAsset(requirement, projectId)
+      await updateRequirement(requirement.id, { status: 'done' })
+      const actionLabel = result.action === 'created' ? '创建' : '更新'
+      message.success(`验收完成，已${actionLabel}「${result.assetName}」`)
       await loadData()
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error) {
+      const errorMessage = getErrorMessage(error)
+      message.error(`同步失败，需求仍处于待验收：${errorMessage}`)
+      await loadData()
     } finally {
-      setSyncing(false)
+      setActionLoading(false)
     }
   }
 
-  const handleDelete = async (id: string) => {
+  const handleSaveComment = async (requirement: Requirement, comment: string) => {
+    setActionLoading(true)
     try {
-      await deleteRequirement(id)
-      message.success('删除成功')
+      await updateRequirement(requirement.id, { comment: comment.trim() })
+      message.success('备注已保存')
       await loadData()
-    } catch (err: any) {
-      message.error(err.message)
+    } catch (error) {
+      message.error(getErrorMessage(error))
+    } finally {
+      setActionLoading(false)
     }
   }
 
-  const kanbanData = STATUSES.reduce((acc, status) => {
-    acc[status] = filtered.filter((r) => r.status === status)
-    return acc
-  }, {} as Record<RequirementStatus, Requirement[]>)
+  const handleDragEnd = async ({ active, over }: DragEndEvent) => {
+    if (!over) return
 
-  const tableColumns = [
-    { title: '标题', dataIndex: 'title', key: 'title', width: 200,
-      render: (v: string, r: Requirement) => <a onClick={() => navigate(`/requirements/${r.id}`)}>{v}</a>,
-    },
-    {
-      title: '类型', dataIndex: 'modification_type', key: 'modification_type', width: 70,
-      render: (v: string) => v === 'new' ? <Tag color="blue">新增</Tag> : <Tag color="green">修改</Tag>,
-    },
-    {
-      title: '埋点', dataIndex: 'tracking_type', key: 'tracking_type', width: 70, responsive: ['sm' as const] as ('sm')[],
-      render: (v: string) => {
-        const labels: Record<string, { color: string; label: string }> = {
-          event: { color: 'purple', label: '事件' },
-          common_property: { color: 'cyan', label: '公共属性' },
-          user_property: { color: 'geekblue', label: '用户属性' },
-        }
-        const opt = labels[v] || { color: 'default', label: v || '事件' }
-        return <Tag color={opt.color}>{opt.label}</Tag>
-      },
-    },
-    { title: '显示名', dataIndex: 'display_name', key: 'display_name', width: 100, responsive: ['sm' as const] as ('sm')[], render: (v: string) => v || '-' },
-    { title: '事件/属性', dataIndex: 'event_name', key: 'event_name', width: 130, responsive: ['md' as const] as ('md')[], render: (v: string) => v || '-' },
-    { title: '版本', dataIndex: 'version', key: 'version', width: 70, responsive: ['md' as const] as ('md')[], render: (v: string) => v || '-' },
-    {
-      title: '平台', key: 'platforms', width: 110, responsive: ['lg' as const] as ('lg')[],
-      render: (_: unknown, r: Requirement) => (r.platforms || []).map((p: string) => {
-        const opt = PLATFORM_OPTIONS.find(o => o.value === p)
-        return <Tag key={p} color={opt?.color} style={{ fontSize: 11 }}>{opt?.label || p}</Tag>
-      }),
-    },
-    {
-      title: '优先级', dataIndex: 'priority', key: 'priority', width: 55,
-      render: (p: RequirementPriority) => <Tag color={PRIORITY_TAGS[p]?.color}>{PRIORITY_TAGS[p]?.label}</Tag>,
-    },
-    {
-      title: '状态', dataIndex: 'status', key: 'status', width: 75,
-      render: (s: RequirementStatus) => <StatusBadge status={s} type="requirement" />,
-    },
-    {
-      title: '提交人', key: 'requester', width: 70, responsive: ['sm' as const] as ('sm')[],
-      render: (_: unknown, r: Requirement) => r.profiles_requester?.display_name || '-',
-    },
-    {
-      title: '操作', key: 'actions', width: 130,
-      render: (_: unknown, record: Requirement) => {
-        const menuItems = {
-          items: [
-            ...(record.status !== 'done' ? [{ key: 'done', icon: <CheckOutlined />, label: '标记完成', onClick: (e: any) => { e.domEvent.stopPropagation(); handleMarkDone(record) } }] : []),
-            { key: 'edit', icon: <EditOutlined />, label: '编辑', onClick: (e: any) => { e.domEvent.stopPropagation(); setEditingRecord(record); setCopyFromRecord(null); setModalOpen(true) } },
-            { key: 'copy', icon: <CopyOutlined />, label: '复制', onClick: (e: any) => { e.domEvent.stopPropagation(); setCopyFromRecord(record); setEditingRecord(null); setModalOpen(true) } },
-            { type: 'divider' as const },
-            {
-              key: 'delete',
-              icon: <DeleteOutlined />,
-              label: <Popconfirm title="确定删除？" onConfirm={() => handleDelete(record.id)} onPopupClick={(e) => e.stopPropagation()}>
-                删除
-              </Popconfirm>,
-              danger: true,
-              onClick: (e: any) => { e.domEvent.stopPropagation() },
-            },
-          ],
-        }
-        return (
-          <Space size="small" onClick={(e) => e.stopPropagation()}>
-            <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/requirements/${record.id}`)}>详情</Button>
-            <Dropdown menu={menuItems} trigger={['click']}>
-              <Button type="link" size="small" icon={<MoreOutlined />} onClick={(e) => e.preventDefault()} />
-            </Dropdown>
-          </Space>
-        )
-      },
-    },
-  ]
+    const targetStatus = over.id as ActiveRequirementStatus
+    if (!ACTIVE_REQUIREMENT_STATUSES.includes(targetStatus)) return
+
+    const requirement = requirements.find((item) => item.id === active.id)
+    if (!requirement || requirement.status === targetStatus) return
+
+    if (requirement.status === 'done') {
+      message.info('已完成需求不能通过拖拽回退')
+      return
+    }
+    if (targetStatus === 'done') {
+      message.info('请打开需求并使用“验收通过并同步”完成需求')
+      return
+    }
+
+    const isValidTransition = (
+      requirement.status === 'pending' && targetStatus === 'in_progress'
+    ) || (
+      requirement.status === 'in_progress' && targetStatus === 'pending'
+    )
+    if (!isValidTransition) return
+
+    const successMessage = targetStatus === 'in_progress' ? '需求已提交验收' : '需求已退回开发'
+    await handleStatusUpdate(requirement, targetStatus, successMessage)
+  }
+
+  const handleAddVersion = async () => {
+    if (!projectId || !newVersionName.trim()) return
+    try {
+      await createVersion(projectId, newVersionName.trim())
+      setNewVersionName('')
+      message.success('版本已添加')
+      await loadVersions()
+    } catch (error) {
+      message.error(getErrorMessage(error))
+    }
+  }
+
+  const handleDeleteVersion = async (id: string) => {
+    try {
+      await deleteVersion(id)
+      message.success('版本已删除')
+      await loadVersions()
+    } catch (error) {
+      message.error(getErrorMessage(error))
+    }
+  }
+
+  const clearFilters = () => {
+    setSearchText('')
+    setFilterVersion(undefined)
+    setFilterPlatform(undefined)
+    setFilterTrackingType(undefined)
+    setFilterRequirementType(undefined)
+    setFilterPriority(undefined)
+  }
+
+  const commonCardActions = {
+    onOpen: openDetail,
+    onEdit: openEdit,
+    onCopy: openCopy,
+    onDelete: handleDelete,
+  }
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Space>
-          <h2 style={{ margin: 0 }}>埋点需求</h2>
+    <div className="requirement-workbench">
+      <header className="requirement-workbench-header">
+        <Space size={12}>
+          <h2>埋点需求</h2>
           <Segmented
             value={viewMode}
-            onChange={(val) => setViewMode(val as 'kanban' | 'list')}
+            onChange={(value) => setViewMode(value as ViewMode)}
             options={[
+              { value: 'workspace', icon: <UnorderedListOutlined />, label: '工作台' },
               { value: 'kanban', icon: <AppstoreOutlined />, label: '看板' },
-              { value: 'list', icon: <UnorderedListOutlined />, label: '列表' },
             ]}
           />
         </Space>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { setEditingRecord(null); setModalOpen(true) }}>
-          提交需求
-        </Button>
-      </div>
+        <Space>
+          <Tooltip title="版本管理">
+            <Button icon={<SettingOutlined />} aria-label="版本管理" onClick={() => setVersionModalOpen(true)} />
+          </Tooltip>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>提交需求</Button>
+        </Space>
+      </header>
 
-      {syncing && (
-        <div style={{ marginBottom: 16, padding: '8px 16px', background: '#fff7e6', borderRadius: 6, border: '1px solid #ffd591' }}>
-          正在同步事件...
-        </div>
-      )}
-
-      <Space style={{ marginBottom: 12, minHeight: 32 }} wrap>
-        <Select
-          placeholder="按平台筛选"
+      <div className="requirement-filter-bar">
+        <Input
           allowClear
-          style={{ width: 130 }}
+          prefix={<SearchOutlined />}
+          placeholder="搜索显示名、技术名或业务场景"
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+          className="requirement-search-input"
+        />
+        <Select
+          allowClear
+          showSearch
+          placeholder="全部版本"
+          value={filterVersion}
+          onChange={setFilterVersion}
+          options={allVersions.map((version) => ({ value: version.name, label: version.name }))}
+          className="requirement-filter-select"
+          optionFilterProp="label"
+        />
+        <Select
+          allowClear
+          placeholder="全部平台"
           value={filterPlatform}
           onChange={setFilterPlatform}
-          options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+          options={PLATFORM_OPTIONS.map((platform) => ({ value: platform.value, label: platform.label }))}
+          className="requirement-filter-select"
         />
         <Select
-          showSearch
           allowClear
-          placeholder="选择版本"
-          style={{ width: 160 }}
-          value={filterVersion}
-          onChange={(val) => setFilterVersion(val)}
-          filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
-          options={allVersions.map(v => ({ value: v.name, label: v.name }))}
+          placeholder="全部埋点类型"
+          value={filterTrackingType}
+          onChange={setFilterTrackingType}
+          options={TRACKING_TYPE_OPTIONS}
+          className="requirement-filter-select-wide"
         />
-        <Button size="small" icon={<SettingOutlined />} onClick={() => setVersionModalOpen(true)}>
-          版本管理
-        </Button>
-        <Tag>共 {filtered.length} 条</Tag>
-      </Space>
+        <Select
+          allowClear
+          placeholder="新增/修改"
+          value={filterRequirementType}
+          onChange={setFilterRequirementType}
+          options={[
+            { value: 'new', label: '新增' },
+            { value: 'modify', label: '修改' },
+          ]}
+          className="requirement-filter-select"
+        />
+        <Select
+          allowClear
+          placeholder="全部优先级"
+          value={filterPriority}
+          onChange={setFilterPriority}
+          options={[
+            { value: 'high', label: '高优先级' },
+            { value: 'medium', label: '中优先级' },
+            { value: 'low', label: '低优先级' },
+          ]}
+          className="requirement-filter-select"
+        />
+        <Button disabled={!hasFilters} onClick={clearFilters}>重置</Button>
+        <Text type="secondary">共 {filteredRequirements.length} 条</Text>
+      </div>
 
-      {viewMode === 'kanban' ? (
+      {hasFilters ? (
+        <Space size={[4, 4]} wrap className="requirement-active-filters">
+          <Text type="secondary">当前筛选：</Text>
+          {filterVersion ? <Tag closable onClose={() => setFilterVersion(undefined)}>版本 {filterVersion}</Tag> : null}
+          {filterPlatform ? <Tag closable onClose={() => setFilterPlatform(undefined)}>{PLATFORM_OPTIONS.find((item) => item.value === filterPlatform)?.label}</Tag> : null}
+          {filterTrackingType ? <Tag closable onClose={() => setFilterTrackingType(undefined)}>{TRACKING_TYPE_META[filterTrackingType].label}</Tag> : null}
+          {filterRequirementType ? <Tag closable onClose={() => setFilterRequirementType(undefined)}>{REQUIREMENT_TYPE_META[filterRequirementType].label}</Tag> : null}
+          {filterPriority ? <Tag closable onClose={() => setFilterPriority(undefined)}>优先级 {REQUIREMENT_PRIORITY_META[filterPriority].label}</Tag> : null}
+        </Space>
+      ) : null}
+
+      {viewMode === 'workspace' ? (
+        <>
+          <Tabs
+            activeKey={activeStatus}
+            onChange={(key) => setActiveStatus(key as ActiveRequirementStatus)}
+            items={ACTIVE_REQUIREMENT_STATUSES.map((status) => ({
+              key: status,
+              label: (
+                <Space size={6}>
+                  {REQUIREMENT_STATUS_LABELS[status]}
+                  <Badge count={groupedRequirements[status].length} showZero overflowCount={999} />
+                </Space>
+              ),
+            }))}
+          />
+
+          {loading ? (
+            <div className="requirement-loading-list">
+              <Skeleton active paragraph={{ rows: 2 }} />
+              <Skeleton active paragraph={{ rows: 2 }} />
+              <Skeleton active paragraph={{ rows: 2 }} />
+            </div>
+          ) : deferredSearchText.trim() ? (
+            filteredRequirements.length > 0 ? (
+              <div className="requirement-search-results">
+                <Text type="secondary">搜索结果已按状态分组</Text>
+                {ACTIVE_REQUIREMENT_STATUSES.map((status) => {
+                  const statusRequirements = groupedRequirements[status]
+                  if (statusRequirements.length === 0) return null
+                  return (
+                    <section key={status} className="requirement-result-group">
+                      <div className="requirement-result-group-header">
+                        <h3>{REQUIREMENT_STATUS_LABELS[status]}</h3>
+                        <Badge count={statusRequirements.length} />
+                      </div>
+                      <RequirementCardList
+                        requirements={statusRequirements}
+                        emptyItemName={REQUIREMENT_STATUS_LABELS[status]}
+                        onCreate={openCreate}
+                        {...commonCardActions}
+                      />
+                    </section>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState scene="no_data" itemName="匹配需求" onAction={clearFilters} actionLabel="清除筛选" />
+            )
+          ) : (
+            <RequirementCardList
+              requirements={groupedRequirements[activeStatus]}
+              emptyItemName={REQUIREMENT_STATUS_LABELS[activeStatus]}
+              onCreate={openCreate}
+              {...commonCardActions}
+            />
+          )}
+        </>
+      ) : (
         <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
           <div
             ref={kanbanBoardRef}
+            className="requirement-kanban-board"
             style={{
-              display: 'grid',
-              gridTemplateColumns: `repeat(${STATUSES.length}, var(--kanban-column-width, ${KANBAN_FALLBACK_COLUMN_WIDTH}px))`,
-              justifyContent: 'start',
-              alignItems: 'start',
-              gap: KANBAN_COLUMN_GAP,
-              minHeight: '60vh',
-              overflowX: 'auto',
-              paddingBottom: 4,
+              gridTemplateColumns: `repeat(${ACTIVE_REQUIREMENT_STATUSES.length}, var(--kanban-column-width, ${KANBAN_FALLBACK_COLUMN_WIDTH}px))`,
             }}
           >
-            {STATUSES.map((status) => (
+            {ACTIVE_REQUIREMENT_STATUSES.map((status) => (
               <KanbanColumn
                 key={status}
                 status={status}
-                label={STATUS_LABELS[status]}
-                items={kanbanData[status]}
-                count={kanbanData[status].length}
-                onEdit={(record) => { setEditingRecord(record); setCopyFromRecord(null); setModalOpen(true) }}
-                onDelete={handleDelete}
-                onCopy={(record) => { setCopyFromRecord(record); setEditingRecord(null); setModalOpen(true) }}
+                label={REQUIREMENT_STATUS_LABELS[status]}
+                items={groupedRequirements[status]}
+                {...commonCardActions}
               />
             ))}
           </div>
         </DndContext>
-      ) : (
-        <Card>
-          <ResizableTable
-            resizeKey="requirements"
-            columns={tableColumns}
-            dataSource={filtered}
-            rowKey="id"
-            loading={loading || syncing}
-            onRow={(record) => ({
-              onClick: () => navigate(`/requirements/${record.id}`),
-              style: { cursor: 'pointer' },
-            })}
-            pagination={{ pageSize: 20, showTotal: (t) => `共 ${t} 条需求` }}
-            size="middle"
-            scroll={{ x: 800 }}
-            locale={{ emptyText: <EmptyState scene="no_data" itemName="埋点需求" onAction={() => { setEditingRecord(null); setModalOpen(true) }} actionLabel="提交需求" /> }}
-          />
-        </Card>
       )}
 
-      {/* 版本管理 Modal */}
       <Modal
         title="版本管理"
         open={versionModalOpen}
@@ -617,7 +740,7 @@ export default function RequirementPage() {
           <Input
             placeholder="输入新版本号，如 2.4.0"
             value={newVersionName}
-            onChange={e => setNewVersionName(e.target.value)}
+            onChange={(event) => setNewVersionName(event.target.value)}
             onPressEnter={handleAddVersion}
           />
           <Button type="primary" onClick={handleAddVersion}>添加</Button>
@@ -625,28 +748,43 @@ export default function RequirementPage() {
         <List
           size="small"
           dataSource={allVersions}
-          renderItem={(v) => (
+          renderItem={(version) => (
             <List.Item
               actions={[
-                <Popconfirm title="确定删除？" onConfirm={() => handleDeleteVersion(v.id)}>
-                  <Button type="link" size="small" danger icon={<DeleteOutlined />} />
+                <Popconfirm key="delete" title="删除版本？" onConfirm={() => handleDeleteVersion(version.id)}>
+                  <Button type="link" size="small" danger icon={<DeleteOutlined />} aria-label={`删除版本 ${version.name}`} />
                 </Popconfirm>,
               ]}
             >
-              {v.name}
+              {version.name}
             </List.Item>
           )}
           locale={{ emptyText: <EmptyState scene="no_data" itemName="版本" /> }}
         />
       </Modal>
 
+      <RequirementDetailDrawer
+        key={selectedRequirement?.id || 'empty'}
+        open={Boolean(selectedRequirement)}
+        requirement={selectedRequirement}
+        actionLoading={actionLoading}
+        onClose={closeDetail}
+        onEdit={openEdit}
+        onCopy={openCopy}
+        onDelete={handleDelete}
+        onSaveComment={handleSaveComment}
+        onSubmitForReview={(requirement) => handleStatusUpdate(requirement, 'in_progress', '需求已提交验收')}
+        onReturnToDevelopment={(requirement) => handleStatusUpdate(requirement, 'pending', '需求已退回开发')}
+        onApproveAndSync={handleApproveAndSync}
+      />
+
       <RequirementFormModal
         open={modalOpen}
-        projectId={projectId!}
+        projectId={projectId || ''}
         editingValues={editingRecord ? {
           title: editingRecord.title,
           display_name: editingRecord.display_name || '',
-          tracking_type: editingRecord.tracking_type || 'event',
+          tracking_type: editingRecord.tracking_type,
           description: editingRecord.description || '',
           event_name: editingRecord.event_name || '',
           event_id: editingRecord.event_id,
@@ -659,7 +797,11 @@ export default function RequirementPage() {
         } : null}
         copyFrom={copyFromRecord}
         onSubmit={handleSubmit}
-        onCancel={() => { setModalOpen(false); setEditingRecord(null); setCopyFromRecord(null) }}
+        onCancel={() => {
+          setModalOpen(false)
+          setEditingRecord(null)
+          setCopyFromRecord(null)
+        }}
       />
     </div>
   )

@@ -1,15 +1,19 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Modal, Form, Input, Select, Button, Space, Radio, Tag, Divider, message, Switch, Alert } from 'antd'
-import { PlusOutlined, MinusCircleOutlined, CheckOutlined, EditOutlined, DeleteOutlined, CloseOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, Select, Button, Space, Radio, Divider, message, Alert } from 'antd'
+import { ThunderboltOutlined } from '@ant-design/icons'
 import { getEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
 import { supabase } from '../../supabase/client'
 import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType, Requirement } from '../../types'
 import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
-import PropertyTypeTag, { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
+import { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
 import { useAiSuggestName } from '../../hooks/useAiSuggestName'
 import { fetchSuggestedName } from '../../utils/aiSuggest'
+import RequirementPropertyEditor, {
+  type PropertyEditorField,
+  type PropertyEditorValue,
+} from './RequirementPropertyEditor'
 
 const { TextArea } = Input
 
@@ -22,6 +26,14 @@ const TRACKING_TYPE_LABEL: Record<TrackingType, string> = {
 const REQUIREMENT_TYPE_LABEL: Record<RequirementType, string> = {
   new: '新增',
   modify: '修改',
+}
+
+interface ExistingPropertyOption {
+  id: string
+  name: string
+  display_name: string | null
+  type: EventProperty['type']
+  description: string | null
 }
 
 interface RequirementFormModalProps {
@@ -73,7 +85,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   const [generatingPropIndex, setGeneratingPropIndex] = useState<number | null>(null)
   const [generatingModifyId, setGeneratingModifyId] = useState<string | null>(null)
   const [existingVersions, setExistingVersions] = useState<string[]>([])
-  const [existingPropList, setExistingPropList] = useState<{ id: string; name: string; display_name: string | null }[]>([])
+  const [existingPropList, setExistingPropList] = useState<ExistingPropertyOption[]>([])
   const typeOptions = usePropertyTypeOptions(projectId)
   const isCopyMode = !!copyFrom
 
@@ -152,8 +164,13 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         }
       } else {
         // 公共属性 / 用户属性
+        const propertyDefinition = copyFrom.proposed_properties?.[0]
+        prefillValues.property_type = propertyDefinition?.type || 'string'
+        prefillValues.property_description = copyFrom.description || propertyDefinition?.description || ''
+        prefillValues.property_required = propertyDefinition?.required || false
         if (copyReqType === 'new') {
           prefillValues.property_name = copyEventName
+          prefillValues.event_id = null
         } else {
           setSelectedEventId(copyFrom.event_id || null)
           prefillValues.property_name = copyFrom.event_id || undefined
@@ -192,9 +209,20 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
       setNewProperties([])
       setExistingPropList([])
 
+      const editFormValues: Record<string, unknown> = { ...editingValues }
+      if (editTrackingType !== 'event') {
+        const propertyDefinition = editingValues.proposed_properties?.[0]
+        editFormValues.property_name = editingValues.modification_type === 'modify'
+          ? editingValues.event_id
+          : editingValues.event_name
+        editFormValues.property_type = propertyDefinition?.type || 'string'
+        editFormValues.property_description = editingValues.description || propertyDefinition?.description || ''
+        editFormValues.property_required = propertyDefinition?.required || false
+      }
+
       // 使用 setTimeout 确保状态先更新再填充表单
       setTimeout(() => {
-        form.setFieldsValue(editingValues)
+        form.setFieldsValue(editFormValues)
       }, 0)
 
       if (editingValues.event_id && editingValues.modification_type === 'modify') {
@@ -245,8 +273,12 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     if (type === 'event') return
     const table = type === 'common_property' ? 'common_properties' : 'user_properties'
     try {
-      const { data } = await supabase.from(table).select('id, name, display_name').eq('project_id', projectId).order('name')
-      setExistingPropList((data || []) as any[])
+      const { data } = await supabase
+        .from(table)
+        .select('id, name, display_name, type, description')
+        .eq('project_id', projectId)
+        .order('name')
+      setExistingPropList((data || []) as ExistingPropertyOption[])
     } catch (err) { console.error('加载已有属性列表失败:', err) }
   }
 
@@ -298,6 +330,23 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
       ...prev,
       [existingId]: { ...(prev[existingId] || {}), [field]: value },
     }))
+  }
+
+  const startModifyProperty = (property: EventProperty) => {
+    setPropAction(property.id, 'modify')
+    setPropModifications(prev => {
+      if (prev[property.id]) return prev
+      return {
+        ...prev,
+        [property.id]: {
+          name: property.name,
+          display_name: property.display_name,
+          type: property.type,
+          description: property.description || '',
+          required: property.required,
+        },
+      }
+    })
   }
 
   // 新增属性
@@ -400,9 +449,25 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         ...cleanValues
       } = values
 
-      // 非事件类型时，将 property_name 映射到 event_name（复用字段）
+      // 非事件类型复用 event_name/event_id，并用 proposed_properties 保存属性定义。
       if (!isEventType && property_name) {
-        cleanValues.event_name = property_name
+        const selectedProperty = existingPropList.find(property => property.id === selectedEventId)
+        const technicalName = reqType === 'modify'
+          ? selectedProperty?.name || values.event_name
+          : property_name
+
+        cleanValues.event_name = technicalName
+        cleanValues.event_id = reqType === 'modify' ? selectedEventId : null
+        cleanValues.description = property_description || cleanValues.description
+        allProps.push({
+          name: technicalName,
+          display_name: displayName,
+          type: property_type || 'string',
+          description: property_description || '',
+          required: property_required || false,
+          action: reqType === 'new' ? 'add' : 'modify',
+          existing_id: reqType === 'modify' ? selectedEventId || undefined : undefined,
+        })
       }
 
       await onSubmit({
@@ -438,22 +503,19 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     }
   }, [aiSuggest.suggestedName, aiSuggest.source, isEventType, form])
 
-  // 每次打开模态框生成新 key，强制全新渲染避免状态残留
-  const [modalKey, setModalKey] = useState(0)
-  useEffect(() => {
-    if (open) setModalKey(k => k + 1)
-  }, [open])
-
   return (
     <Modal
-      key={modalKey}
       title={isCopyMode ? '复制需求' : editingValues ? '编辑需求' : '提交埋点需求'}
       open={open}
       onOk={handleSubmit}
       onCancel={onCancel}
       confirmLoading={submitting}
-      destroyOnClose
-      width={720}
+      okText={editingValues ? '保存修改' : isCopyMode ? '创建副本' : '提交需求'}
+      cancelText="取消"
+      mask={{ closable: !submitting }}
+      destroyOnHidden
+      width="min(920px, calc(100vw - 48px))"
+      styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', paddingRight: 12 } }}
     >
       <Form form={form} layout="vertical" style={{ marginTop: 16 }}
         onValuesChange={handleFormValuesChange}
@@ -465,20 +527,10 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
             showIcon
             style={{ marginBottom: 16 }}
             message="复制模式"
-            description={
-              <div style={{ fontSize: 13 }}>
-                以需求「<strong>{copyFrom!.title}</strong>」为模板创建新需求。业务配置已预填，你可以自由修改任何字段。
-                <ul style={{ margin: '4px 0 0 0', paddingLeft: 20 }}>
-                  {(copyFrom!.modification_type === 'new' && copyFrom!.event_name) && (
-                    <li>事件名/属性名已自动追加 <code>_copy</code> 后缀以避免冲突</li>
-                  )}
-                  <li>提交人将设为你，状态重置为「待开发」</li>
-                  <li>建议修改<strong>显示名</strong>和<strong>版本号</strong>以区分原需求</li>
-                </ul>
-              </div>
-            }
+            description={`已预填「${copyFrom!.display_name || copyFrom!.title}」的配置，请确认显示名、技术名和版本。`}
           />
         )}
+        <Divider titlePlacement="start" plain>基础信息</Divider>
         {/* 埋点类型 — 事件 / 公共属性 / 用户属性 */}
         <Form.Item label="埋点类型" rules={[{ required: true }]}>
           <Radio.Group
@@ -504,15 +556,11 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
           name="display_name"
           label="显示名"
           rules={[{ required: true, message: '请输入显示名' }]}
-          extra={
-            autoTitle(form.getFieldValue('display_name') || '')
-              ? `标题预览：${autoTitle(form.getFieldValue('display_name') || '')}`
-              : undefined
-          }
         >
           <Input placeholder="如：商品点击、用户等级、会员类型" />
         </Form.Item>
 
+        <Divider titlePlacement="start" plain>技术定义</Divider>
         {/* ====== 事件类型的字段 ====== */}
         {isEventType && (
           <>
@@ -577,52 +625,39 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         {!isEventType && (
           <>
             {isNewType ? (
-              <>
-                <Form.Item
-                  name="property_name"
-                  label="属性名"
-                  rules={[
-                    { required: true, message: '请输入属性名' },
-                    { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
-                  ]}
-                >
-                  <Input
-                    placeholder="如 user_level, login_count"
-                    suffix={
-                      <ThunderboltOutlined
-                        spin={aiSuggest.isLoading}
-                        onClick={() => {
-                          const dn = displayName || form.getFieldValue('display_name')
-                          if (!dn?.trim()) { message.warning('请先填写显示名'); return }
-                          aiSuggest.trigger(dn)
-                        }}
-                        style={{
-                          cursor: 'pointer',
-                          color: aiSuggest.isLoading ? '#4f46e5' : '#bfbfbf',
-                          fontSize: 14,
-                          transition: 'color 0.2s',
-                        }}
-                        title="AI 生成属性名"
-                      />
-                    }
-                    style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
-                    onChange={(e) => {
-                      if (e.target.value) aiSuggest.markManual(e.target.value)
-                    }}
-                  />
-                </Form.Item>
-                <Form.Item name="property_type" label="属性类型" initialValue="string">
-                  <Select options={typeOptions} />
-                </Form.Item>
-                <Form.Item name="property_description" label="属性说明">
-                  <TextArea rows={2} placeholder="描述属性的含义和用途" />
-                </Form.Item>
-                <Form.Item name="property_required" label="是否必填" initialValue={false}>
-                  <Select options={[
-                    { value: false, label: '可选' }, { value: true, label: '必填' },
-                  ]} />
-                </Form.Item>
-              </>
+              <Form.Item
+                name="property_name"
+                label="属性名"
+                rules={[
+                  { required: true, message: '请输入属性名' },
+                  { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头，仅字母数字下划线' },
+                ]}
+              >
+                <Input
+                  placeholder="如 user_level, login_count"
+                  suffix={
+                    <ThunderboltOutlined
+                      spin={aiSuggest.isLoading}
+                      onClick={() => {
+                        const dn = displayName || form.getFieldValue('display_name')
+                        if (!dn?.trim()) { message.warning('请先填写显示名'); return }
+                        aiSuggest.trigger(dn)
+                      }}
+                      style={{
+                        cursor: 'pointer',
+                        color: aiSuggest.isLoading ? '#4f46e5' : '#bfbfbf',
+                        fontSize: 14,
+                        transition: 'color 0.2s',
+                      }}
+                      title="AI 生成属性名"
+                    />
+                  }
+                  style={aiSuggest.source === 'ai' ? { borderColor: '#4f46e5', boxShadow: '0 0 0 2px rgba(79,70,229,0.1)' } : undefined}
+                  onChange={(e) => {
+                    if (e.target.value) aiSuggest.markManual(e.target.value)
+                  }}
+                />
+              </Form.Item>
             ) : (
               <Form.Item name="property_name" label="选择已有属性" rules={[{ required: true, message: '请选择要修改的属性' }]}>
                 <Select
@@ -633,7 +668,12 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                     setSelectedEventId(val)
                     const selected = existingPropList.find(p => p.id === val)
                     if (selected) {
-                      form.setFieldsValue({ event_name: selected.name, display_name: selected.display_name || selected.name })
+                      form.setFieldsValue({
+                        event_name: selected.name,
+                        display_name: selected.display_name || selected.name,
+                        property_type: selected.type,
+                        property_description: selected.description || '',
+                      })
                     }
                   }}
                   options={existingPropList.map(p => ({
@@ -643,9 +683,21 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
                 />
               </Form.Item>
             )}
+            <Form.Item name="property_type" label="属性类型" initialValue="string">
+              <Select options={typeOptions} />
+            </Form.Item>
+            <Form.Item name="property_description" label="属性说明">
+              <TextArea rows={2} placeholder="描述属性的含义和用途" />
+            </Form.Item>
+            <Form.Item name="property_required" label="是否必填" initialValue={false}>
+              <Select options={[
+                { value: false, label: '可选' }, { value: true, label: '必填' },
+              ]} />
+            </Form.Item>
           </>
         )}
 
+        <Divider titlePlacement="start" plain>交付范围</Divider>
         {/* 公共字段 */}
         <Form.Item name="priority" label="优先级" rules={[{ required: true }]}>
           <Select options={[
@@ -671,7 +723,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
             placeholder="选择平台"
             allowClear
             options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
-            dropdownRender={(menu) => (
+            popupRender={(menu) => (
               <>
                 <div style={{ padding: '4px 8px', borderBottom: '1px solid #f0f0f0' }}>
                   <Space>
@@ -689,144 +741,32 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
           />
         </Form.Item>
 
-        <Form.Item name="trigger_timing" label="触发时机">
-          <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
-        </Form.Item>
-
-        {/* ====== 已有属性管理（事件 + 修改模式） ====== */}
-        {isEventType && !isNewType && selectedEventId && existingProperties.length > 0 && (
-          <>
-            <Divider plain style={{ fontSize: 13, marginTop: 16 }}>已有属性</Divider>
-            <div style={{ marginBottom: 12, fontSize: 12, color: '#999' }}>
-              点击操作按钮标记：保留 / 修改 / 删除。默认保留。
-            </div>
-            {existingProperties.map((ep) => {
-              const action = propActions[ep.id] || 'keep'
-              const mod = propModifications[ep.id]
-              return (
-                <div key={ep.id} style={{
-                  border: '1px solid #f0f0f0',
-                  borderRadius: 6,
-                  padding: 10,
-                  marginBottom: 8,
-                  background: action === 'delete' ? '#fff1f0' : action === 'modify' ? '#fffbe6' : '#fff',
-                }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: action === 'modify' ? 8 : 0 }}>
-                    <Space size={4}>
-                      <code style={{ fontWeight: 500 }}>{ep.name}</code>
-                      {ep.display_name && <Tag style={{ fontSize: 11 }}>{ep.display_name}</Tag>}
-                      <PropertyTypeTag type={ep.type as any} />
-                      {ep.required && <Tag color="red" style={{ fontSize: 11 }}>必填</Tag>}
-                    </Space>
-                    <Space size={4}>
-                      <Button size="small" type={action === 'keep' ? 'primary' : 'default'}
-                        icon={<CheckOutlined />} onClick={() => setPropAction(ep.id, 'keep')}>保留</Button>
-                      <Button size="small" type={action === 'modify' ? 'primary' : 'default'}
-                        icon={<EditOutlined />} onClick={() => {
-                          setPropAction(ep.id, 'modify')
-                          setPropModifications(prev => ({
-                            ...prev,
-                            [ep.id]: { name: ep.name, display_name: ep.display_name, type: ep.type, description: ep.description || '', required: ep.required },
-                          }))
-                        }}>修改</Button>
-                      <Button size="small" danger={action === 'delete'} type={action === 'delete' ? 'primary' : 'default'}
-                        icon={action === 'delete' ? <CloseOutlined /> : <DeleteOutlined />}
-                        onClick={() => setPropAction(ep.id, action === 'delete' ? 'keep' : 'delete')}>
-                        {action === 'delete' ? '已标记删除' : '删除'}
-                      </Button>
-                    </Space>
-                  </div>
-
-                  {action === 'modify' && (
-                    <div style={{ marginTop: 8, padding: '8px 12px', background: '#fff', borderRadius: 4, border: '1px dashed #faad14' }}>
-                      <Space wrap size={[8, 4]}>
-                        <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>
-                            属性名
-                            <ThunderboltOutlined
-                              spin={generatingModifyId === ep.id}
-                              onClick={() => handleGenerateModifyName(ep.id, (mod as any)?.display_name || ep.display_name || ep.name)}
-                              style={{
-                                cursor: generatingModifyId === ep.id ? 'wait' : 'pointer',
-                                color: generatingModifyId === ep.id ? '#4f46e5' : '#bfbfbf',
-                                fontSize: 11,
-                                marginLeft: 4,
-                                transition: 'color 0.2s',
-                              }}
-                              title="AI 生成属性名"
-                            />
-                          </span>
-                          <Input size="small" style={{ width: 100 }} value={mod?.name || ''}
-                            onChange={e => updatePropMod(ep.id, 'name', e.target.value)} />
-                        </div>
-                        <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>显示名</span>
-                          <Input size="small" style={{ width: 100 }} value={(mod as any)?.display_name || ''}
-                            onChange={e => updatePropMod(ep.id, 'display_name', e.target.value)} />
-                        </div>
-                        <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>类型</span>
-                          <Select size="small" style={{ width: 90 }} value={mod?.type || ep.type}
-                            onChange={v => updatePropMod(ep.id, 'type', v)} options={typeOptions} />
-                        </div>
-                        <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>说明</span>
-                          <Input size="small" style={{ width: 120 }} value={(mod as any)?.description || ''}
-                            onChange={e => updatePropMod(ep.id, 'description', e.target.value)} />
-                        </div>
-                        <div>
-                          <span style={{ fontSize: 11, color: '#999' }}>必填</span>
-                          <Switch size="small" checked={(mod as any)?.required !== undefined ? (mod as any)?.required : ep.required}
-                            onChange={v => updatePropMod(ep.id, 'required', v)} />
-                        </div>
-                      </Space>
-                    </div>
-                  )}
-                </div>
-              )
-            })}
-          </>
+        {isEventType && (
+          <Form.Item name="trigger_timing" label="触发时机">
+            <TextArea rows={2} placeholder="如：用户点击商品卡片时触发" />
+          </Form.Item>
         )}
 
-        {/* ====== 新增属性（事件类型） ====== */}
         {isEventType && (
-          <>
-            <Divider plain style={{ fontSize: 13, marginTop: 16 }}>
-              新增属性 {!isNewType && selectedEventId ? '（将追加到事件）' : ''}
-            </Divider>
-            {newProperties.map((prop, idx) => (
-              <Space key={idx} style={{ display: 'flex', marginBottom: 8, flexWrap: 'wrap' }} align="baseline">
-                <Input placeholder="属性名" style={{ width: 100 }} value={prop.name}
-                  onChange={e => updateNewProp(idx, 'name', e.target.value)}
-                  suffix={
-                    <ThunderboltOutlined
-                      spin={generatingPropIndex === idx}
-                      onClick={(e) => { e.stopPropagation(); handleGeneratePropName(idx) }}
-                      style={{
-                        cursor: generatingPropIndex === idx ? 'wait' : 'pointer',
-                        color: generatingPropIndex === idx ? '#4f46e5' : '#bfbfbf',
-                        fontSize: 12,
-                        transition: 'color 0.2s',
-                      }}
-                      title="AI 生成属性名"
-                    />
-                  }
-                />
-                <Input placeholder="显示名" style={{ width: 100 }} value={prop.display_name || ''}
-                  onChange={e => updateNewProp(idx, 'display_name', e.target.value)} />
-                <Select style={{ width: 90 }} value={prop.type}
-                  onChange={v => updateNewProp(idx, 'type', v)} options={typeOptions} />
-                <Input placeholder="说明" style={{ width: 120 }} value={prop.description}
-                  onChange={e => updateNewProp(idx, 'description', e.target.value)} />
-                <Select style={{ width: 70 }} value={prop.required}
-                  onChange={v => updateNewProp(idx, 'required', v)} options={[
-                    { value: false, label: '可选' }, { value: true, label: '必填' },
-                  ]} />
-                <MinusCircleOutlined onClick={() => removeNewProp(idx)} style={{ color: '#ff4d4f' }} />
-              </Space>
-            ))}
-            <Button type="dashed" onClick={addNewProp} block icon={<PlusOutlined />}>添加属性</Button>
-          </>
+          <RequirementPropertyEditor
+            projectId={projectId}
+            existingProperties={!isNewType && selectedEventId ? existingProperties : []}
+            propertyActions={propActions}
+            propertyModifications={propModifications}
+            newProperties={newProperties}
+            typeOptions={typeOptions}
+            generatingNewIndex={generatingPropIndex}
+            generatingExistingId={generatingModifyId}
+            isAppendingToExistingEvent={!isNewType && Boolean(selectedEventId)}
+            onStartModify={startModifyProperty}
+            onSetExistingAction={setPropAction}
+            onUpdateExisting={(propertyId: string, field: PropertyEditorField, value: PropertyEditorValue) => updatePropMod(propertyId, field, value)}
+            onGenerateExistingName={handleGenerateModifyName}
+            onAddNew={addNewProp}
+            onUpdateNew={(index: number, field: PropertyEditorField, value: PropertyEditorValue) => updateNewProp(index, field, value)}
+            onGenerateNewName={handleGeneratePropName}
+            onRemoveNew={removeNewProp}
+          />
         )}
       </Form>
     </Modal>
