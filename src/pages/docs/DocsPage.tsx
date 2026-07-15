@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Card, Collapse, Empty, Input, message, Select, Space, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, Empty, Input, message, Result, Select, Space, Tabs, Tag, Typography } from 'antd'
 import { FileExcelOutlined, FileMarkdownOutlined, SearchOutlined } from '@ant-design/icons'
 import { getAllEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
@@ -10,6 +10,7 @@ import PropertyTypeTag from '../../components/PropertyTypeTag'
 import EmptyState from '../../components/EmptyState'
 import ResizableTable from '../../components/ResizableTable'
 import { useProjectStore } from '../../stores/projectStore'
+import { formatError } from '../../utils/errors'
 
 const { Title, Paragraph, Text } = Typography
 
@@ -19,6 +20,8 @@ export default function DocsPage() {
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [propertiesMap, setPropertiesMap] = useState<Record<string, EventProperty[]>>({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [propertyLoadFailures, setPropertyLoadFailures] = useState(0)
   const [search, setSearch] = useState('')
   const [categoryFilter, setCategoryFilter] = useState<string>()
 
@@ -36,31 +39,38 @@ export default function DocsPage() {
     })
   }, [categoryFilter, events, search])
 
-  useEffect(() => {
-    const load = async () => {
-      if (!projectId) return
-      setLoading(true)
-      try {
-        const data = await getAllEvents(projectId)
-        const activeEvents = data.filter((event) => event.status !== 'deprecated')
-        setEvents(activeEvents)
+  const load = useCallback(async () => {
+    if (!projectId) return
+    setLoading(true)
+    setLoadError(null)
+    setPropertyLoadFailures(0)
+    try {
+      const data = await getAllEvents(projectId)
+      const activeEvents = data.filter((event) => event.status !== 'deprecated')
+      setEvents(activeEvents)
 
-        const map: Record<string, EventProperty[]> = {}
-        await Promise.all(
-          activeEvents.map(async (e) => {
-            try { map[e.id] = await getEventProperties(e.id) } catch { console.warn(`加载事件 ${e.id} 属性失败`); map[e.id] = [] }
-          })
-        )
-        setPropertiesMap(map)
-      } catch (err) {
-        message.error('加载埋点字典失败，请刷新重试')
-        console.error('Docs load error:', err)
-      } finally {
-        setLoading(false)
-      }
+      const map: Record<string, EventProperty[]> = {}
+      let failures = 0
+      await Promise.all(activeEvents.map(async (event) => {
+        try {
+          map[event.id] = await getEventProperties(event.id)
+        } catch {
+          failures += 1
+          map[event.id] = []
+        }
+      }))
+      setPropertiesMap(map)
+      setPropertyLoadFailures(failures)
+    } catch (error: unknown) {
+      setLoadError(formatError(error))
+    } finally {
+      setLoading(false)
     }
-    load()
   }, [projectId])
+
+  // Initial and project-driven fetching intentionally updates page state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load() }, [load])
 
   // 导出 CSV
   const handleExportCSV = () => {
@@ -123,6 +133,16 @@ export default function DocsPage() {
   // 埋点字典 Tab
   const dictionaryTab = (
     <div>
+      {propertyLoadFailures > 0 ? (
+        <Alert
+          type="warning"
+          showIcon
+          message={`${propertyLoadFailures} 个事件的属性加载失败`}
+          description="这些事件暂时显示为空属性，请重新加载后再导出文档。"
+          action={<Button size="small" onClick={() => void load()}>重新加载</Button>}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
       <div className="management-filter-bar" style={{ justifyContent: 'space-between' }}>
         <Space wrap>
           <Input
@@ -262,12 +282,19 @@ export default function DocsPage() {
   return (
     <div>
       <h2 style={{ marginBottom: 16 }}>埋点文档</h2>
-      <Tabs
+      {loadError && !loading ? (
+        <Result
+          status="error"
+          title="埋点文档加载失败"
+          subTitle={loadError}
+          extra={<Button type="primary" onClick={() => void load()}>重新加载</Button>}
+        />
+      ) : <Tabs
         items={[
           { key: 'dictionary', label: '埋点字典', children: dictionaryTab },
           { key: 'convention', label: '命名规范', children: conventionTab },
         ]}
-      />
+      />}
     </div>
   )
 }

@@ -1,6 +1,6 @@
-import { useEffect, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Space, Tag, Typography, theme, message, Button } from 'antd'
+import { Row, Col, Card, Statistic, Space, Tag, Typography, theme, Button, Result } from 'antd'
 import {
   ThunderboltOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   FileTextOutlined, RightOutlined,
@@ -11,6 +11,7 @@ import type { TrackingEvent, Requirement } from '../types'
 import StatusBadge from '../components/StatusBadge'
 import EmptyState from '../components/EmptyState'
 import { useProjectStore } from '../stores/projectStore'
+import { formatError } from '../utils/errors'
 
 const { Text } = Typography
 
@@ -34,6 +35,7 @@ export default function DashboardPage() {
   const [recentEvents, setRecentEvents] = useState<TrackingEvent[]>([])
   const [pendingReqs, setPendingReqs] = useState<Requirement[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   const getNavigationCardProps = (path: string) => ({
     role: 'link',
@@ -44,27 +46,40 @@ export default function DashboardPage() {
     },
   })
 
-  useEffect(() => {
-    const load = async () => {
-      if (!projectId) return
-      try {
-        const [eventStats, events, reqs] = await Promise.all([
-          getEventStats(projectId),
-          getEvents({ projectId, page: 1 }).then((r) => r.data.slice(0, 5)),
-          getRequirements(projectId),
-        ])
-        setStats(eventStats)
-        setRecentEvents(events)
-        setPendingReqs(reqs.filter((r) => r.status === 'pending' || r.status === 'in_progress'))
-      } catch (err) {
-        message.error('加载仪表盘数据失败，请刷新页面重试')
-        console.error('Dashboard load error:', err)
-      } finally {
-        setLoading(false)
-      }
+  const load = useCallback(async () => {
+    if (!projectId) return
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const [eventStats, events, requirements] = await Promise.all([
+        getEventStats(projectId),
+        getEvents({ projectId, page: 1 }).then((result) => result.data.slice(0, 5)),
+        getRequirements(projectId),
+      ])
+      setStats(eventStats)
+      setRecentEvents(events)
+      setPendingReqs(requirements.filter((requirement) => requirement.status === 'pending' || requirement.status === 'in_progress'))
+    } catch (error: unknown) {
+      setLoadError(formatError(error))
+    } finally {
+      setLoading(false)
     }
-    load()
   }, [projectId])
+
+  // Initial and project-driven fetching intentionally updates page state.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load() }, [load])
+
+  if (loadError && !loading) {
+    return (
+      <Result
+        status="error"
+        title="总览加载失败"
+        subTitle={loadError}
+        extra={<Button type="primary" onClick={() => void load()}>重新加载</Button>}
+      />
+    )
+  }
 
   return (
     <div style={{ maxWidth: pageMaxWidth, margin: '0 auto' }}>

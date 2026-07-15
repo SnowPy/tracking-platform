@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Card, Descriptions, Empty, message, Modal, Popconfirm, Select, Space, Tag, Typography } from 'antd'
+import { Button, Card, Descriptions, message, Modal, Popconfirm, Result, Select, Space, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined, EditOutlined } from '@ant-design/icons'
 import { getEventById, updateEvent, deleteEvent } from '../../api/events'
 import { getEventProperties, createEventProperty, updateEventProperty, deleteEventProperty } from '../../api/eventProperties'
@@ -11,6 +11,7 @@ import type { PropertyItem } from '../../components/PropertyTable'
 import { useProjectStore } from '../../stores/projectStore'
 import EventFormModal from './EventFormModal'
 import { formatError } from '../../utils/errors'
+import { toEventPropertyItem, toEventPropertyMutation } from './eventPropertyPresentation'
 
 const { Text } = Typography
 
@@ -21,25 +22,42 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<TrackingEvent | null>(null)
   const [properties, setProperties] = useState<EventProperty[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [editing, setEditing] = useState(false)
   const [modal, modalContextHolder] = Modal.useModal()
 
   const loadData = useCallback(async () => {
-    if (!id) return
-    setLoading(true)
-    try {
-      const [eventData, propData] = await Promise.all([
-        getEventById(id),
-        getEventProperties(id),
-      ])
-      setEvent(eventData)
-      setProperties(propData)
-    } catch (error: unknown) {
-      message.error(formatError(error))
-    } finally {
+    if (!id) {
+      setLoadError('缺少事件 ID')
       setLoading(false)
+      return
     }
+    setLoading(true)
+    setLoadError(null)
+
+    const [eventResult, propertyResult] = await Promise.allSettled([
+      getEventById(id),
+      getEventProperties(id),
+    ])
+
+    if (eventResult.status === 'fulfilled') {
+      setEvent(eventResult.value)
+    } else {
+      setEvent(null)
+      setLoadError(formatError(eventResult.reason))
+    }
+
+    if (propertyResult.status === 'fulfilled') {
+      setProperties(propertyResult.value)
+    } else {
+      setProperties([])
+      if (eventResult.status === 'fulfilled') {
+        message.error(`事件属性加载失败：${formatError(propertyResult.reason)}`)
+      }
+    }
+
+    setLoading(false)
   }, [id])
 
   // Initial and route-driven fetching intentionally updates page state.
@@ -87,23 +105,23 @@ export default function EventDetailPage() {
     return <Card loading style={{ minHeight: 260 }} />
   }
 
-  if (!event) {
+  if (loadError && !event) {
     return (
-      <Empty description="未找到该事件">
-        <Button onClick={() => navigate('/events')}>返回事件列表</Button>
-      </Empty>
+      <Result
+        status="error"
+        title="事件加载失败"
+        subTitle={loadError}
+        extra={[
+          <Button key="retry" type="primary" onClick={loadData}>重新加载</Button>,
+          <Button key="back" onClick={() => navigate('/events')}>返回事件列表</Button>,
+        ]}
+      />
     )
   }
 
-  const propItems: PropertyItem[] = properties.map((p) => ({
-    id: p.id,
-    name: p.name,
-    type: p.type,
-    description: p.description,
-    required: p.required,
-    example_value: p.example_value,
-    sort_order: p.sort_order,
-  }))
+  if (!event) return null
+
+  const propItems: PropertyItem[] = properties.map(toEventPropertyItem)
 
   return (
     <>
@@ -179,12 +197,13 @@ export default function EventDetailPage() {
           showRequired
           projectId={projectId!}
           resizeKey="event-detail-properties-v2"
+          showDeliveryFields={false}
           onCreate={async (values) => {
-            await createEventProperty({ project_id: projectId!, event_id: id!, ...values })
+            await createEventProperty({ project_id: projectId!, event_id: id!, ...toEventPropertyMutation(values) })
             await loadData()
           }}
           onUpdate={async (propId, values) => {
-            await updateEventProperty(propId, values)
+            await updateEventProperty(propId, toEventPropertyMutation(values))
             await loadData()
           }}
           onDelete={async (propId) => {

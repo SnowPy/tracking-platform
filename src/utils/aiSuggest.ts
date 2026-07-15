@@ -6,6 +6,13 @@
 
 type SuggestType = 'event' | 'common_property' | 'user_property'
 
+function getResponseError(value: unknown) {
+  if (value && typeof value === 'object' && 'error' in value && typeof value.error === 'string') {
+    return value.error
+  }
+  return null
+}
+
 /**
  * 调用 AI 生成技术名称，流式读取结果
  * @param displayName 中文显示名
@@ -29,7 +36,7 @@ export async function fetchSuggestedName(
 
   if (!res.ok) {
     const errData = await res.json().catch(() => ({}))
-    throw new Error((errData as any).error || `请求失败 (${res.status})`)
+    throw new Error(getResponseError(errData) || `请求失败 (${res.status})`)
   }
 
   // 流式读取 SSE
@@ -51,9 +58,11 @@ export async function fetchSuggestedName(
         const data = line.slice(6)
         if (data === '[DONE]') break
         try {
-          const content = JSON.parse(data)
-          accumulated += content
-          onChunk?.(accumulated)
+          const content: unknown = JSON.parse(data)
+          if (typeof content === 'string') {
+            accumulated += content
+            onChunk?.(accumulated)
+          }
         } catch { /* 跳过解析失败 */ }
       }
     }

@@ -4,7 +4,8 @@ import { DeleteOutlined, EditOutlined, PlusOutlined, SearchOutlined } from '@ant
 import type { ColumnsType } from 'antd/es/table'
 import type { PropertyType, Platform } from '../types'
 import { PLATFORM_OPTIONS } from '../types'
-import PropertyTypeTag, { usePropertyTypeOptions } from './PropertyTypeTag'
+import PropertyTypeTag from './PropertyTypeTag'
+import { usePropertyTypeOptions } from '../hooks/usePropertyTypes'
 import EmptyState from './EmptyState'
 import ResizableTable from './ResizableTable'
 import { formatError } from '../utils/errors'
@@ -44,9 +45,20 @@ interface PropertyTableProps {
   onCreate: (values: PropertyCreateValues) => Promise<void>
   onUpdate: (id: string, values: Partial<PropertyCreateValues>) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  showDeliveryFields?: boolean
 }
 
-export default function PropertyTable({ dataSource, loading, showRequired, projectId, resizeKey = 'properties', onCreate, onUpdate, onDelete }: PropertyTableProps) {
+export default function PropertyTable({
+  dataSource,
+  loading,
+  showRequired,
+  projectId,
+  resizeKey = 'properties',
+  onCreate,
+  onUpdate,
+  onDelete,
+  showDeliveryFields = true,
+}: PropertyTableProps) {
   const typeOptions = usePropertyTypeOptions(projectId)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingRecord, setEditingRecord] = useState<PropertyItem | null>(null)
@@ -62,15 +74,19 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
       const matchesSearch = !keyword || [property.name, property.display_name, property.description]
         .some((value) => value?.toLowerCase().includes(keyword))
       const matchesType = !typeFilter || property.type === typeFilter
-      const matchesPlatform = !platformFilter || property.platforms?.includes(platformFilter)
+      const matchesPlatform = !showDeliveryFields || !platformFilter || property.platforms?.includes(platformFilter)
       return matchesSearch && matchesType && matchesPlatform
     })
-  }, [dataSource, platformFilter, search, typeFilter])
+  }, [dataSource, platformFilter, search, showDeliveryFields, typeFilter])
 
   const handleOpenCreate = () => {
     setEditingRecord(null)
     form.resetFields()
-    form.setFieldsValue({ type: 'string', required: false, platforms: [] })
+    form.setFieldsValue({
+      type: 'string',
+      required: false,
+      ...(showDeliveryFields ? { platforms: [] } : {}),
+    })
     setModalOpen(true)
   }
 
@@ -83,21 +99,32 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
       description: record.description,
       required: record.required,
       example_value: record.example_value,
-      platforms: record.platforms || [],
-      notes: record.notes || '',
+      ...(showDeliveryFields ? {
+        platforms: record.platforms || [],
+        notes: record.notes || '',
+      } : {}),
     })
     setModalOpen(true)
   }
 
   const handleSubmit = async () => {
     try {
-      const values = await form.validateFields()
+      const values = await form.validateFields() as PropertyCreateValues
+      const normalizedValues: PropertyCreateValues = {
+        ...values,
+        name: values.name.trim(),
+        display_name: values.display_name?.trim() || undefined,
+      }
+      if (!showDeliveryFields) {
+        delete normalizedValues.platforms
+        delete normalizedValues.notes
+      }
       setSubmitting(true)
       if (editingRecord) {
-        await onUpdate(editingRecord.id, values)
+        await onUpdate(editingRecord.id, normalizedValues)
         message.success('更新成功')
       } else {
-        await onCreate(values)
+        await onCreate(normalizedValues)
         message.success('创建成功')
       }
       setModalOpen(false)
@@ -139,7 +166,7 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
       title: '示例值', dataIndex: 'example_value', key: 'example_value', width: 110,
       render: (text: string | null) => text || '-',
     },
-    {
+    ...(showDeliveryFields ? [{
       title: '平台', dataIndex: 'platforms', key: 'platforms', width: 120,
       render: (platforms: Platform[] | undefined) => (platforms || []).map((p: string) => {
         const opt = PLATFORM_OPTIONS.find(o => o.value === p)
@@ -149,7 +176,7 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
     {
       title: '备注', dataIndex: 'notes', key: 'notes', width: 120, ellipsis: true,
       render: (text: string | null) => text ? <Tooltip title={text}>{text}</Tooltip> : '-',
-    },
+    }] : []),
     {
       title: '操作', key: 'actions', width: 96, fixed: 'right',
       render: (_, record) => (
@@ -189,14 +216,16 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
           options={typeOptions}
           onChange={setTypeFilter}
         />
-        <Select
-          allowClear
-          placeholder="全部平台"
-          style={{ width: 130 }}
-          value={platformFilter}
-          options={PLATFORM_OPTIONS.map((platform) => ({ value: platform.value, label: platform.label }))}
-          onChange={setPlatformFilter}
-        />
+        {showDeliveryFields ? (
+          <Select
+            allowClear
+            placeholder="全部平台"
+            style={{ width: 130 }}
+            value={platformFilter}
+            options={PLATFORM_OPTIONS.map((platform) => ({ value: platform.value, label: platform.label }))}
+            onChange={setPlatformFilter}
+          />
+        ) : null}
       </div>
       <ResizableTable
         resizeKey={resizeKey}
@@ -218,11 +247,14 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
         title={editingRecord ? '编辑属性' : '添加属性'}
         open={modalOpen}
         onOk={handleSubmit}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { if (!submitting) setModalOpen(false) }}
         confirmLoading={submitting}
         okText={editingRecord ? '保存修改' : '添加属性'}
         cancelText="取消"
         mask={{ closable: !submitting }}
+        closable={!submitting}
+        keyboard={!submitting}
+        cancelButtonProps={{ disabled: submitting }}
         destroyOnHidden
         forceRender
         width="min(760px, calc(100vw - 32px))"
@@ -234,7 +266,10 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
             <Form.Item name="display_name" label="显示名">
               <Input placeholder="如 用户ID、页面URL" />
             </Form.Item>
-            <Form.Item name="name" label="属性名" rules={[{ required: true, message: '请输入属性名' }]}>
+            <Form.Item name="name" label="属性名" rules={[
+              { required: true, message: '请输入属性名' },
+              { pattern: /^[a-z][a-z0-9_]*$/, message: '请使用小写字母、数字、下划线，且以字母开头' },
+            ]}>
               <Input disabled={Boolean(editingRecord)} placeholder="如 user_id、page_url" />
             </Form.Item>
             <Form.Item name="type" label="类型" rules={[{ required: true }]}>
@@ -257,20 +292,24 @@ export default function PropertyTable({ dataSource, loading, showRequired, proje
             ) : null}
           </div>
 
-          <Divider titlePlacement="start" plain>交付范围</Divider>
-          <div className="management-form-grid">
-            <Form.Item className="management-form-span-2" name="platforms" label="目标平台">
-              <Select
-                mode="multiple"
-                placeholder="选择平台"
-                allowClear
-                options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
-              />
-            </Form.Item>
-            <Form.Item className="management-form-span-2" name="notes" label="备注">
-              <TextArea rows={2} placeholder="补充说明" />
-            </Form.Item>
-          </div>
+          {showDeliveryFields ? (
+            <>
+              <Divider titlePlacement="start" plain>交付范围</Divider>
+              <div className="management-form-grid">
+                <Form.Item className="management-form-span-2" name="platforms" label="目标平台">
+                  <Select
+                    mode="multiple"
+                    placeholder="选择平台"
+                    allowClear
+                    options={PLATFORM_OPTIONS.map(p => ({ value: p.value, label: p.label }))}
+                  />
+                </Form.Item>
+                <Form.Item className="management-form-span-2" name="notes" label="备注">
+                  <TextArea rows={2} placeholder="补充说明" />
+                </Form.Item>
+              </div>
+            </>
+          ) : null}
         </Form>
       </Modal>
     </>
