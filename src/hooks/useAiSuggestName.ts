@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 
 /** 字段值的来源 */
 type FieldSource = 'empty' | 'ai' | 'manual'
@@ -36,6 +36,13 @@ interface UseAiSuggestNameReturn {
   markManual: (value: string) => void
   /** 重置全部状态 */
   reset: () => void
+}
+
+function getResponseError(value: unknown) {
+  if (value && typeof value === 'object' && 'error' in value && typeof value.error === 'string') {
+    return value.error
+  }
+  return null
 }
 
 export function useAiSuggestName(options: UseAiSuggestNameOptions): UseAiSuggestNameReturn {
@@ -76,7 +83,7 @@ export function useAiSuggestName(options: UseAiSuggestNameOptions): UseAiSuggest
 
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}))
-          setError((errData as any).error || `请求失败 (${res.status})`)
+          setError(getResponseError(errData) || `请求失败 (${res.status})`)
           setIsLoading(false)
           return
         }
@@ -100,9 +107,11 @@ export function useAiSuggestName(options: UseAiSuggestNameOptions): UseAiSuggest
               const data = line.slice(6)
               if (data === '[DONE]') break
               try {
-                const content = JSON.parse(data)
-                accumulated += content
-                setSuggestedName(accumulated)
+                const content: unknown = JSON.parse(data)
+                if (typeof content === 'string') {
+                  accumulated += content
+                  setSuggestedName(accumulated)
+                }
               } catch { /* 跳过解析失败 */ }
             }
           }
@@ -120,10 +129,10 @@ export function useAiSuggestName(options: UseAiSuggestNameOptions): UseAiSuggest
             return 'ai'
           })
         }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('AI suggest error:', err)
-          setError(err.message || '生成失败')
+      } catch (error: unknown) {
+        if (!(error instanceof DOMException && error.name === 'AbortError')) {
+          console.error('AI suggest error:', error)
+          setError(error instanceof Error ? error.message : '生成失败')
         }
       } finally {
         setIsLoading(false)
@@ -162,6 +171,11 @@ export function useAiSuggestName(options: UseAiSuggestNameOptions): UseAiSuggest
     setIsLoading(false)
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     if (abortRef.current) abortRef.current.abort()
+  }, [])
+
+  useEffect(() => () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    abortRef.current?.abort()
   }, [])
 
   return {

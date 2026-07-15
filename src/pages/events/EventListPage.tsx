@@ -34,6 +34,7 @@ export default function EventListPage() {
   const projectId = useProjectStore((s) => s.currentProjectId)
   const [events, setEvents] = useState<TrackingEvent[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  const [categoriesProjectId, setCategoriesProjectId] = useState<string | null>(null)
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
@@ -64,9 +65,21 @@ export default function EventListPage() {
   useEffect(() => { loadData() }, [loadData])
   useEffect(() => {
     if (projectId) {
-      getCategories(projectId).then(setCategories).catch(() => {})
+      let cancelled = false
+      getCategories(projectId)
+        .then((result) => { if (!cancelled) setCategories(result) })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setCategories([])
+            message.error(`分类加载失败：${formatError(error)}`)
+          }
+        })
+        .finally(() => { if (!cancelled) setCategoriesProjectId(projectId) })
+      return () => { cancelled = true }
     }
   }, [projectId])
+
+  const categoriesLoading = Boolean(projectId && categoriesProjectId !== projectId)
 
   const handleCreate = () => {
     setEditingRecord(null)
@@ -199,7 +212,8 @@ export default function EventListPage() {
             allowClear
             style={{ width: 160 }}
             value={filters.category_id}
-            options={categories.map((c) => ({ value: c.id, label: c.name }))}
+            loading={categoriesLoading}
+            options={(categoriesLoading ? [] : categories).map((c) => ({ value: c.id, label: c.name }))}
             onChange={(val) => { setFilters((f) => ({ ...f, category_id: val })); setPage(1) }}
           />
           <Select

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Button, Dropdown, Select, theme } from 'antd'
+import { Layout, Menu, Button, Dropdown, Result, Select, Spin, theme } from 'antd'
 import {
   DashboardOutlined,
   ThunderboltOutlined,
@@ -50,10 +50,11 @@ const menuItems = [
 
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
+  const [mobile, setMobile] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const { profile, signOut } = useAuthStore()
-  const { projects, currentProjectId, setCurrentProject } = useProjectStore()
+  const { projects, currentProjectId, loading, error, initialize, setCurrentProject } = useProjectStore()
   const { token } = theme.useToken()
 
   const selectedKeys = [location.pathname === '/' ? '/' : `/${location.pathname.split('/')[1]}`]
@@ -79,6 +80,12 @@ export default function MainLayout() {
         trigger={null}
         collapsible
         collapsed={collapsed}
+        collapsedWidth={mobile ? 0 : 72}
+        breakpoint="lg"
+        onBreakpoint={(broken) => {
+          setMobile(broken)
+          setCollapsed(broken)
+        }}
         theme="light"
         style={{
           borderRight: `1px solid ${token.colorBorderSecondary}`,
@@ -107,7 +114,7 @@ export default function MainLayout() {
       </Sider>
       <Layout style={{ minWidth: 0 }}>
         <Header style={{
-          padding: '0 24px',
+          padding: '0 clamp(12px, 2vw, 24px)',
           background: token.colorBgContainer,
           display: 'flex',
           alignItems: 'center',
@@ -121,13 +128,14 @@ export default function MainLayout() {
               type="text"
               icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
               onClick={() => setCollapsed(!collapsed)}
+              aria-label={collapsed ? '展开导航菜单' : '收起导航菜单'}
             />
             {projects.length > 1 && currentProjectId && (
               <Select
                 value={currentProjectId}
                 onChange={(value) => setCurrentProject(value)}
                 options={projects.map((p) => ({ value: p.id, label: p.name }))}
-                style={{ width: 160 }}
+                style={{ width: 'min(160px, 38vw)' }}
                 size="small"
               />
             )}
@@ -143,12 +151,25 @@ export default function MainLayout() {
                 whiteSpace: 'nowrap',
               }}
             >
-              {profile?.display_name || '用户'}
+              <span className="app-user-name">{profile?.display_name || '用户'}</span>
             </Button>
           </Dropdown>
         </Header>
-        <Content style={{ margin: 24, minWidth: 0 }}>
-          <Outlet />
+        <Content style={{ margin: 'clamp(12px, 2vw, 24px)', minWidth: 0 }}>
+          {loading ? (
+            <div className="app-route-loading"><Spin size="large" tip="正在加载项目…" /></div>
+          ) : error ? (
+            <Result
+              status="error"
+              title="项目加载失败"
+              subTitle={error}
+              extra={<Button type="primary" onClick={() => void initialize()}>重新加载</Button>}
+            />
+          ) : !currentProjectId ? (
+            <Result status="info" title="暂无可用项目" subTitle="请联系管理员为当前账号分配项目。" />
+          ) : (
+            <Outlet />
+          )}
         </Content>
       </Layout>
     </Layout>

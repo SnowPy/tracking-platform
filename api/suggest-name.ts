@@ -52,6 +52,10 @@ interface RequestBody {
   type: 'event' | 'common_property' | 'user_property'
 }
 
+interface AiStreamPayload {
+  choices?: Array<{ delta?: { content?: string } }>
+}
+
 /** 读取 IncomingMessage 的 JSON body */
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -165,7 +169,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           break
         }
         try {
-          const parsed = JSON.parse(data)
+          const parsed = JSON.parse(data) as AiStreamPayload
           const content = parsed.choices?.[0]?.delta?.content
           if (content) {
             res.write(`data: ${JSON.stringify(content)}\n\n`)
@@ -178,8 +182,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
     res.write('data: [DONE]\n\n')
     res.end()
-  } catch (err: any) {
-    console.error('AI suggest error:', err)
+  } catch (error: unknown) {
+    console.error('AI suggest error:', error)
     json(res, 500, { error: 'AI 建议生成失败，请稍后重试' })
   }
 }

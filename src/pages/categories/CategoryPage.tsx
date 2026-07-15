@@ -166,8 +166,12 @@ export default function CategoryPage() {
         title={editingRecord ? '编辑分类' : '添加分类'}
         open={modalOpen}
         onOk={handleSubmit}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { if (!submitting) setModalOpen(false) }}
         confirmLoading={submitting}
+        mask={{ closable: !submitting }}
+        closable={!submitting}
+        keyboard={!submitting}
+        cancelButtonProps={{ disabled: submitting }}
         okText={editingRecord ? '保存修改' : '添加分类'}
         cancelText="取消"
         destroyOnHidden

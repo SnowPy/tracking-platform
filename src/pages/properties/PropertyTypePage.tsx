@@ -6,6 +6,7 @@ import type { PropertyTypeConfig } from '../../types'
 import { useProjectStore } from '../../stores/projectStore'
 import ResizableTable from '../../components/ResizableTable'
 import { formatError } from '../../utils/errors'
+import { invalidatePropertyTypes } from '../../hooks/usePropertyTypes'
 
 export default function PropertyTypePage() {
   const projectId = useProjectStore((s) => s.currentProjectId)
@@ -34,8 +35,9 @@ export default function PropertyTypePage() {
     const values = await form.validateFields()
     setSubmitting(true)
     try {
-      if (editing) { await updatePropertyType(editing.id, values); message.success('已更新') }
+      if (editing) { await updatePropertyType(editing.id, projectId!, values); message.success('已更新') }
       else { await createPropertyType({ project_id: projectId!, ...values }); message.success('已创建') }
+      await invalidatePropertyTypes(projectId!)
       setModalOpen(false)
       await load()
     } catch (error: unknown) { message.error(formatError(error)) }
@@ -43,7 +45,7 @@ export default function PropertyTypePage() {
   }
 
   const handleDelete = async (id: string) => {
-    try { await deletePropertyType(id); message.success('已删除'); await load() }
+    try { await deletePropertyType(id, projectId!); await invalidatePropertyTypes(projectId!); message.success('已删除'); await load() }
     catch (error: unknown) { message.error(formatError(error)) }
   }
 
@@ -79,7 +81,21 @@ export default function PropertyTypePage() {
           scroll={{ x: 700 }}
         />
       </Card>
-      <Modal title={editing ? '编辑类型' : '添加类型'} open={modalOpen} onOk={handleSubmit} onCancel={() => setModalOpen(false)} confirmLoading={submitting} okText={editing ? '保存修改' : '添加类型'} cancelText="取消" destroyOnHidden forceRender>
+      <Modal
+        title={editing ? '编辑类型' : '添加类型'}
+        open={modalOpen}
+        onOk={handleSubmit}
+        onCancel={() => { if (!submitting) setModalOpen(false) }}
+        confirmLoading={submitting}
+        okText={editing ? '保存修改' : '添加类型'}
+        cancelText="取消"
+        mask={{ closable: !submitting }}
+        closable={!submitting}
+        keyboard={!submitting}
+        cancelButtonProps={{ disabled: submitting }}
+        destroyOnHidden
+        forceRender
+      >
         <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
           <Form.Item name="value" label="类型标识" rules={[{ required: true }, { pattern: /^[a-z][a-z0-9_]*$/, message: '小写字母开头' }]}>
             <Input placeholder="如 string, int64" />

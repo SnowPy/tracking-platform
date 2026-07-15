@@ -462,7 +462,6 @@ export default function RequirementPage() {
     setActionLoading(true)
     try {
       const result = await syncRequirementToTrackingAsset(requirement, projectId)
-      await updateRequirement(requirement.id, { status: 'done' })
       const actionLabel = result.action === 'created' ? '创建' : '更新'
       message.success(`验收完成，已${actionLabel}「${result.assetName}」`)
       await loadData()

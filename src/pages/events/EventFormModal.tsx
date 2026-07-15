@@ -33,11 +33,21 @@ interface CategoryTreeOption {
 export default function EventFormModal({ open, editingRecord, projectId, onSubmit, onCancel }: EventFormModalProps) {
   const [form] = Form.useForm()
   const [categories, setCategories] = useState<Category[]>([])
+  const [categoriesProjectId, setCategoriesProjectId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     if (open) {
-      getCategories(projectId).then(setCategories).catch(() => {})
+      let cancelled = false
+      getCategories(projectId)
+        .then((result) => { if (!cancelled) setCategories(result) })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setCategories([])
+            message.error(`分类加载失败：${formatError(error)}`)
+          }
+        })
+        .finally(() => { if (!cancelled) setCategoriesProjectId(projectId) })
       if (editingRecord) {
         form.setFieldsValue({
           ...editingRecord,
@@ -47,8 +57,11 @@ export default function EventFormModal({ open, editingRecord, projectId, onSubmi
         form.resetFields()
         form.setFieldsValue({ status: 'draft', platforms: [] })
       }
+      return () => { cancelled = true }
     }
   }, [open, editingRecord, form, projectId])
+
+  const categoriesLoading = open && categoriesProjectId !== projectId
 
   const handleOk = async () => {
     try {
@@ -81,11 +94,14 @@ export default function EventFormModal({ open, editingRecord, projectId, onSubmi
       title={editingRecord ? '编辑事件' : '创建事件'}
       open={open}
       onOk={handleOk}
-      onCancel={onCancel}
+      onCancel={() => { if (!submitting) onCancel() }}
       confirmLoading={submitting}
       okText={editingRecord ? '保存修改' : '创建事件'}
       cancelText="取消"
       mask={{ closable: !submitting }}
+      closable={!submitting}
+      keyboard={!submitting}
+      cancelButtonProps={{ disabled: submitting }}
       destroyOnHidden
       forceRender
       width="min(760px, calc(100vw - 32px))"
@@ -104,7 +120,7 @@ export default function EventFormModal({ open, editingRecord, projectId, onSubmi
             <Input disabled={Boolean(editingRecord)} placeholder="如 page_view, button_click" />
           </Form.Item>
           <Form.Item name="category_id" label="分类">
-            <TreeSelect treeData={categoryTree} placeholder="选择分类" allowClear treeDefaultExpandAll />
+            <TreeSelect treeData={categoriesLoading ? [] : categoryTree} placeholder="选择分类" allowClear treeDefaultExpandAll loading={categoriesLoading} />
           </Form.Item>
           <Form.Item name="status" label="状态" rules={[{ required: true }]}>
             <Select options={[

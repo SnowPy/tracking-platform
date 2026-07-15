@@ -1,5 +1,7 @@
 import { supabase } from '../supabase/client'
-import type { Requirement, ProposedProperty } from '../types'
+import type { Profile, Requirement, ProposedProperty } from '../types'
+
+type ProfileSummary = Pick<Profile, 'id' | 'display_name'>
 
 export async function getRequirements(projectId: string): Promise<Requirement[]> {
   // 分别查询需求和用户信息，在前端做关联
@@ -11,18 +13,26 @@ export async function getRequirements(projectId: string): Promise<Requirement[]>
   if (error) throw error
 
   // 收集所有用户 ID，批量查询 profiles
-  const userIds = [...new Set(data.flatMap((r: any) => [r.requester_id, r.assignee_id].filter(Boolean)))]
-  const { data: profiles } = await supabase
-    .from('profiles')
-    .select('id, display_name')
-    .in('id', userIds)
-  const profileMap = new Map((profiles || []).map((p: any) => [p.id, p]))
+  const requirements = data as Requirement[]
+  const userIds = [...new Set(requirements.flatMap((requirement) => (
+    [requirement.requester_id, requirement.assignee_id].filter((id): id is string => Boolean(id))
+  )))]
+  let profiles: ProfileSummary[] = []
+  if (userIds.length > 0) {
+    const profileResult = await supabase
+      .from('profiles')
+      .select('id, display_name')
+      .in('id', userIds)
+    if (profileResult.error) throw profileResult.error
+    profiles = profileResult.data as ProfileSummary[]
+  }
+  const profileMap = new Map(profiles.map((profile) => [profile.id, profile]))
 
-  return data.map((r: any) => ({
-    ...r,
-    profiles_requester: r.requester_id ? profileMap.get(r.requester_id) || null : null,
-    profiles_assignee: r.assignee_id ? profileMap.get(r.assignee_id) || null : null,
-  })) as unknown as Requirement[]
+  return requirements.map((requirement) => ({
+    ...requirement,
+    profiles_requester: requirement.requester_id ? profileMap.get(requirement.requester_id) || null : null,
+    profiles_assignee: requirement.assignee_id ? profileMap.get(requirement.assignee_id) || null : null,
+  }))
 }
 
 export async function createRequirement(data: {

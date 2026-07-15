@@ -1,5 +1,7 @@
 import { supabase } from '../supabase/client'
 import type { TrackingEvent } from '../types'
+import { buildEventSearchFilter } from './eventSearch'
+export { buildEventSearchFilter } from './eventSearch'
 
 const PAGE_SIZE = 20
 const FULL_LIST_PAGE_SIZE = 1000
@@ -32,7 +34,7 @@ export async function getEvents(params: EventListParams): Promise<EventListResul
     query = query.eq('status', params.status)
   }
   if (params.search) {
-    query = query.or(`name.ilike.%${params.search}%,display_name.ilike.%${params.search}%`)
+    query = query.or(buildEventSearchFilter(params.search))
   }
 
   const { data, error, count } = await query
@@ -68,6 +70,17 @@ export async function getEventById(id: string) {
     .single()
   if (error) throw error
   return data as TrackingEvent
+}
+
+export async function eventNameExists(projectId: string, name: string) {
+  const { data, error } = await supabase
+    .from('events')
+    .select('id')
+    .eq('project_id', projectId)
+    .eq('name', name)
+    .maybeSingle()
+  if (error) throw error
+  return Boolean(data)
 }
 
 export async function createEvent(data: {
@@ -116,13 +129,18 @@ export async function deleteEvent(id: string) {
 }
 
 export async function getEventStats(projectId: string) {
-  const { count: total } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId)
-  const { count: active } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'active')
-  const { count: deprecated } = await supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'deprecated')
+  const [totalResult, activeResult, deprecatedResult] = await Promise.all([
+    supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId),
+    supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'active'),
+    supabase.from('events').select('*', { count: 'exact', head: true }).eq('project_id', projectId).eq('status', 'deprecated'),
+  ])
+
+  const error = totalResult.error || activeResult.error || deprecatedResult.error
+  if (error) throw error
 
   return {
-    total: total ?? 0,
-    active: active ?? 0,
-    deprecated: deprecated ?? 0,
+    total: totalResult.count ?? 0,
+    active: activeResult.count ?? 0,
+    deprecated: deprecatedResult.count ?? 0,
   }
 }

@@ -16,6 +16,9 @@ interface AuthState {
   initialize: () => Promise<void>
 }
 
+let authInitialization: Promise<void> | null = null
+let authListenerStarted = false
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   session: null,
   user: null,
@@ -62,21 +65,39 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   initialize: async () => {
-    const { data: { session } } = await supabase.auth.getSession()
-    set({ session, user: session?.user ?? null })
-    if (session?.user) {
-      await get().fetchProfile(session.user.id)
-    }
-    set({ loading: false })
+    if (!authInitialization) {
+      authInitialization = (async () => {
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession()
+          if (error) throw error
+          set({ session, user: session?.user ?? null })
+          if (session?.user) await get().fetchProfile(session.user.id)
+        } finally {
+          set({ loading: false })
+        }
 
-    // 监听认证状态变化
-    supabase.auth.onAuthStateChange(async (_event, session) => {
-      set({ session, user: session?.user ?? null })
-      if (session?.user) {
-        await get().fetchProfile(session.user.id)
-      } else {
-        set({ profile: null })
-      }
-    })
+        if (!authListenerStarted) {
+          authListenerStarted = true
+          supabase.auth.onAuthStateChange((event, session) => {
+            set({ session, user: session?.user ?? null })
+
+            if (event === 'TOKEN_REFRESHED') return
+
+            if (session?.user) {
+              void get().fetchProfile(session.user.id)
+            } else {
+              set({ profile: null })
+            }
+          })
+        }
+      })()
+    }
+
+    try {
+      await authInitialization
+    } catch (error) {
+      authInitialization = null
+      throw error
+    }
   },
 }))

@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Modal, Form, Input, Select, Button, Space, Radio, Divider, message, Alert } from 'antd'
+import type { RuleObject } from 'antd/es/form'
 import { ThunderboltOutlined } from '@ant-design/icons'
-import { getEvents } from '../../api/events'
+import { eventNameExists, getAllEvents } from '../../api/events'
 import { getEventProperties } from '../../api/eventProperties'
 import { getVersions } from '../../api/versions'
-import { supabase } from '../../supabase/client'
+import { getCommonProperties, getUserProperties } from '../../api/properties'
 import type { ProposedProperty, PropertyAction, TrackingEvent, EventProperty, Platform, TrackingType, RequirementType, Requirement } from '../../types'
 import { PLATFORM_OPTIONS, TRACKING_TYPE_OPTIONS } from '../../types'
-import { usePropertyTypeOptions } from '../../components/PropertyTypeTag'
+import { usePropertyTypeOptions } from '../../hooks/usePropertyTypes'
 import { useAiSuggestName } from '../../hooks/useAiSuggestName'
 import { fetchSuggestedName } from '../../utils/aiSuggest'
+import { formatError } from '../../utils/errors'
 import RequirementPropertyEditor, {
   type PropertyEditorField,
   type PropertyEditorValue,
@@ -36,23 +38,29 @@ interface ExistingPropertyOption {
   description: string | null
 }
 
+interface RequirementFormValues {
+  title?: string
+  display_name?: string
+  tracking_type?: TrackingType
+  description?: string
+  event_name?: string
+  event_id?: string | null
+  modification_type: RequirementType
+  proposed_properties?: ProposedProperty[]
+  priority: 'low' | 'medium' | 'high'
+  version?: string | null
+  platforms?: Platform[]
+  trigger_timing?: string | null
+  property_name?: string
+  property_type?: string
+  property_description?: string
+  property_required?: boolean
+}
+
 interface RequirementFormModalProps {
   open: boolean
   projectId: string
-  editingValues?: {
-    title?: string
-    display_name?: string
-    tracking_type?: string
-    description?: string
-    event_name?: string
-    event_id?: string | null
-    modification_type?: string
-    proposed_properties?: ProposedProperty[]
-    priority?: string
-    version?: string | null
-    platforms?: Platform[]
-    trigger_timing?: string | null
-  } | null
+  editingValues?: Partial<RequirementFormValues> | null
   copyFrom?: Requirement | null
   onSubmit: (values: {
     title: string
@@ -72,7 +80,7 @@ interface RequirementFormModalProps {
 }
 
 export default function RequirementFormModal({ open, projectId, editingValues, copyFrom, onSubmit, onCancel }: RequirementFormModalProps) {
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<RequirementFormValues>()
   const [submitting, setSubmitting] = useState(false)
   const [trackingType, setTrackingType] = useState<TrackingType>('event')
   const [reqType, setReqType] = useState<RequirementType>('new')
@@ -86,6 +94,9 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   const [generatingModifyId, setGeneratingModifyId] = useState<string | null>(null)
   const [existingVersions, setExistingVersions] = useState<string[]>([])
   const [existingPropList, setExistingPropList] = useState<ExistingPropertyOption[]>([])
+  const [eventsLoading, setEventsLoading] = useState(false)
+  const [versionsLoading, setVersionsLoading] = useState(false)
+  const [propertiesLoading, setPropertiesLoading] = useState(false)
   const typeOptions = usePropertyTypeOptions(projectId)
   const isCopyMode = !!copyFrom
 
@@ -95,11 +106,12 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     : trackingType === 'common_property' ? 'common_property' as const
     : 'user_property' as const
   const aiSuggest = useAiSuggestName({ type: aiType, debounceMs: 0 })
+  const resetAiSuggest = aiSuggest.reset
 
   // 切换类型时重置 AI
   useEffect(() => {
-    aiSuggest.reset()
-  }, [trackingType])
+    resetAiSuggest()
+  }, [trackingType, resetAiSuggest])
 
   // ─── 标题自动生成 ──────────────────────────────────
   const autoTitle = useCallback((displayName: string) => {
@@ -110,17 +122,65 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
   }, [reqType, trackingType])
 
   // 异步校验事件名
-  const checkEventName = useCallback(async (_: any, value: string) => {
+  const checkEventName = useCallback(async (_: RuleObject, value?: string) => {
     if (!value || reqType !== 'new' || trackingType !== 'event') return
-    const { data } = await supabase.from('events').select('name').eq('project_id', projectId).eq('name', value).maybeSingle()
-    if (data) return Promise.reject(new Error(`事件名「${value}」已存在`))
+    if (await eventNameExists(projectId, value)) throw new Error(`事件名「${value}」已存在`)
   }, [reqType, trackingType, projectId])
 
+  const loadExistingProperties = useCallback(async (eventId: string, resetActions = true) => {
+    setPropertiesLoading(true)
+    try {
+      const properties = await getEventProperties(eventId)
+      setExistingProperties(properties)
+      if (resetActions) {
+        setPropActions({})
+        setPropModifications({})
+      }
+    } catch (error: unknown) {
+      setExistingProperties([])
+      message.error(`加载事件属性失败：${formatError(error)}`)
+    } finally {
+      setPropertiesLoading(false)
+    }
+  }, [])
+
+  const loadExistingPropList = useCallback(async (type: TrackingType) => {
+    if (type === 'event') return
+    setPropertiesLoading(true)
+    try {
+      const properties = type === 'common_property'
+        ? await getCommonProperties(projectId)
+        : await getUserProperties(projectId)
+      setExistingPropList(properties)
+    } catch (error: unknown) {
+      setExistingPropList([])
+      message.error(`加载已有属性失败：${formatError(error)}`)
+    } finally {
+      setPropertiesLoading(false)
+    }
+  }, [projectId])
+
   // 打开模态框时初始化表单（仅依赖 open，避免重复触发）
+  // 表单初始化需要在弹窗打开时同步重置局部编辑状态。
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!open) return
-    getEvents({ projectId, page: 1 }).then(({ data }) => setExistingEvents(data)).catch(() => {})
-    getVersions(projectId).then(vs => setExistingVersions(vs.map(v => v.name))).catch(() => {})
+    setEventsLoading(true)
+    getAllEvents(projectId)
+      .then(setExistingEvents)
+      .catch((error: unknown) => {
+        setExistingEvents([])
+        message.error(`加载事件列表失败：${formatError(error)}`)
+      })
+      .finally(() => setEventsLoading(false))
+    setVersionsLoading(true)
+    getVersions(projectId)
+      .then((versions) => setExistingVersions(versions.map((version) => version.name)))
+      .catch((error: unknown) => {
+        setExistingVersions([])
+        message.error(`加载版本列表失败：${formatError(error)}`)
+      })
+      .finally(() => setVersionsLoading(false))
 
     if (copyFrom) {
       // ─── 复制模式：预填源需求的所有业务字段 ───
@@ -142,7 +202,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
       }
 
       // 构建预填值
-      const prefillValues: Record<string, any> = {
+      const prefillValues: Partial<RequirementFormValues> = {
         display_name: copyFrom.display_name || '',
         modification_type: copyReqType,
         description: copyFrom.description || '',
@@ -186,7 +246,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         copyFrom.proposed_properties.forEach(p => {
           if (p.existing_id && p.action) actions[p.existing_id] = p.action
           if (p.existing_id && p.action === 'modify') mods[p.existing_id] = {
-            name: p.name, display_name: p.display_name, type: p.type as any,
+            name: p.name, display_name: p.display_name, type: p.type,
             description: p.description, required: p.required,
           }
         })
@@ -235,7 +295,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         editingValues.proposed_properties.forEach(p => {
           if (p.existing_id && p.action) actions[p.existing_id] = p.action
           if (p.existing_id && p.action === 'modify') mods[p.existing_id] = {
-            name: p.name, display_name: p.display_name, type: p.type as any,
+            name: p.name, display_name: p.display_name, type: p.type,
             description: p.description, required: p.required,
           }
         })
@@ -256,31 +316,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
-
-  const loadExistingProperties = async (eventId: string, resetActions = true) => {
-    try {
-      const props = await getEventProperties(eventId)
-      setExistingProperties(props)
-      if (resetActions) {
-        setPropActions({})
-        setPropModifications({})
-      }
-    } catch (err) { console.error('加载事件属性失败:', err); message.error('加载事件属性失败') }
-  }
-
-  // 加载已有属性列表（公共属性/用户属性修改模式）
-  const loadExistingPropList = async (type: TrackingType) => {
-    if (type === 'event') return
-    const table = type === 'common_property' ? 'common_properties' : 'user_properties'
-    try {
-      const { data } = await supabase
-        .from(table)
-        .select('id, name, display_name, type, description')
-        .eq('project_id', projectId)
-        .order('name')
-      setExistingPropList((data || []) as ExistingPropertyOption[])
-    } catch (err) { console.error('加载已有属性列表失败:', err) }
-  }
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // 切换埋点类型 — 重置整个表单为新页面
   const handleTrackingTypeChange = (type: TrackingType) => {
@@ -324,7 +360,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     }
   }
 
-  const updatePropMod = (existingId: string, field: string, value: any) => {
+  const updatePropMod = (existingId: string, field: PropertyEditorField, value: PropertyEditorValue) => {
     setPropActions(prev => ({ ...prev, [existingId]: 'modify' }))
     setPropModifications(prev => ({
       ...prev,
@@ -354,7 +390,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     setNewProperties(prev => [...prev, { name: '', display_name: '', type: 'string', description: '', required: false }])
   }
 
-  const updateNewProp = (index: number, field: string, value: any) => {
+  const updateNewProp = (index: number, field: PropertyEditorField, value: PropertyEditorValue) => {
     setNewProperties(prev => prev.map((p, i) => i === index ? { ...p, [field]: value } : p))
   }
 
@@ -373,8 +409,8 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     try {
       const name = await fetchSuggestedName(prop.display_name, 'event')
       updateNewProp(index, 'name', name)
-    } catch (err: any) {
-      message.error(err.message || 'AI 生成失败')
+    } catch (error: unknown) {
+      message.error(formatError(error))
     } finally {
       setGeneratingPropIndex(null)
     }
@@ -390,8 +426,8 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
     try {
       const name = await fetchSuggestedName(displayName, 'event')
       updatePropMod(existingId, 'name', name)
-    } catch (err: any) {
-      message.error(err.message || 'AI 生成失败')
+    } catch (error: unknown) {
+      message.error(formatError(error))
     } finally {
       setGeneratingModifyId(null)
     }
@@ -414,15 +450,15 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         existingProperties.forEach(ep => {
           const action = propActions[ep.id] || 'keep'
           if (action === 'delete') {
-            allProps.push({ name: ep.name, type: ep.type as any, description: ep.description || '', required: ep.required, action: 'delete', existing_id: ep.id })
+            allProps.push({ name: ep.name, type: ep.type, description: ep.description || '', required: ep.required, action: 'delete', existing_id: ep.id })
           } else if (action === 'modify') {
             const mod = propModifications[ep.id] || {}
             allProps.push({
-              name: (mod as any).name || ep.name,
-              display_name: (mod as any).display_name !== undefined ? (mod as any).display_name : (ep.display_name || ''),
-              type: (mod as any).type || ep.type,
-              description: (mod as any).description !== undefined ? (mod as any).description : (ep.description || ''),
-              required: (mod as any).required !== undefined ? (mod as any).required : ep.required,
+              name: mod.name || ep.name,
+              display_name: mod.display_name ?? ep.display_name ?? '',
+              type: mod.type || ep.type,
+              description: mod.description ?? ep.description ?? '',
+              required: mod.required !== undefined ? mod.required : ep.required,
               action: 'modify',
               existing_id: ep.id,
             })
@@ -455,6 +491,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         const technicalName = reqType === 'modify'
           ? selectedProperty?.name || values.event_name
           : property_name
+        if (!technicalName) throw new Error('请选择要修改的属性')
 
         cleanValues.event_name = technicalName
         cleanValues.event_id = reqType === 'modify' ? selectedEventId : null
@@ -479,15 +516,15 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         proposed_properties: allProps,
       })
       form.resetFields()
-    } catch (err: any) {
-      if (err.message && err.message !== 'VALIDATE_FAILED') message.error(err.message)
+    } catch (error: unknown) {
+      if (!(error && typeof error === 'object' && 'errorFields' in error)) message.error(formatError(error))
     } finally {
       setSubmitting(false)
     }
   }
 
   // 表单值变化监听
-  const handleFormValuesChange = (changed: any) => {
+  const handleFormValuesChange = (changed: Partial<RequirementFormValues>) => {
     if (changed.modification_type !== undefined) handleReqTypeChange(changed.modification_type)
   }
 
@@ -508,11 +545,14 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
       title={isCopyMode ? '复制需求' : editingValues ? '编辑需求' : '提交埋点需求'}
       open={open}
       onOk={handleSubmit}
-      onCancel={onCancel}
+      onCancel={() => { if (!submitting) onCancel() }}
       confirmLoading={submitting}
       okText={editingValues ? '保存修改' : isCopyMode ? '创建副本' : '提交需求'}
       cancelText="取消"
       mask={{ closable: !submitting }}
+      closable={!submitting}
+      keyboard={!submitting}
+      cancelButtonProps={{ disabled: submitting }}
       destroyOnHidden
       width="min(920px, calc(100vw - 48px))"
       styles={{ body: { maxHeight: 'calc(100vh - 220px)', overflowY: 'auto', paddingRight: 12 } }}
@@ -561,6 +601,9 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
         </Form.Item>
 
         <Divider titlePlacement="start" plain>技术定义</Divider>
+        {aiSuggest.error ? (
+          <Alert type="warning" showIcon message="AI 命名暂不可用" description={aiSuggest.error} style={{ marginBottom: 16 }} />
+        ) : null}
         {/* ====== 事件类型的字段 ====== */}
         {isEventType && (
           <>
@@ -604,6 +647,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
               <Form.Item name="event_id" label="选择事件" rules={[{ required: true, message: '请选择要修改的事件' }]}>
                 <Select
                   showSearch
+                  loading={eventsLoading}
                   placeholder="搜索选择已有事件"
                   optionFilterProp="label"
                   onChange={(id) => handleEventSelect(id)}
@@ -662,6 +706,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
               <Form.Item name="property_name" label="选择已有属性" rules={[{ required: true, message: '请选择要修改的属性' }]}>
                 <Select
                   showSearch
+                  loading={propertiesLoading}
                   placeholder={`搜索选择已有${TRACKING_TYPE_LABEL[trackingType]}`}
                   optionFilterProp="label"
                   onChange={(val) => {
@@ -711,6 +756,7 @@ export default function RequirementFormModal({ open, projectId, editingValues, c
           <Select
             showSearch
             allowClear
+            loading={versionsLoading}
             placeholder="选择版本号"
             filterOption={(input, option) => (option?.label as string || '').toLowerCase().includes(input.toLowerCase())}
             options={existingVersions.map(v => ({ value: v, label: v }))}
