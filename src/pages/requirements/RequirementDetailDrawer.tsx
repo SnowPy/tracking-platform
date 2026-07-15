@@ -33,6 +33,21 @@ const MIN_DRAWER_WIDTH = 480
 const MAX_DRAWER_WIDTH = 960
 const DRAWER_VIEWPORT_MARGIN = 24
 const KEYBOARD_RESIZE_STEP = 32
+const PROPERTY_TABLE_MIN_WIDTH = 900
+
+function renderCopyableText(value?: string, code = false) {
+  if (!value) return '-'
+
+  return (
+    <Text
+      code={code}
+      copyable={{ text: value }}
+      style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}
+    >
+      {value}
+    </Text>
+  )
+}
 
 function getMaximumDrawerWidth() {
   return Math.min(MAX_DRAWER_WIDTH, window.innerWidth - DRAWER_VIEWPORT_MARGIN)
@@ -157,12 +172,12 @@ export default function RequirementDetailDrawer({
   )
 
   const propertyColumns: TableColumnsType<ProposedProperty> = [
-    { title: '属性名', dataIndex: 'name', width: '20%', ellipsis: true, render: (value: string) => <Text code>{value}</Text> },
-    { title: '显示名', dataIndex: 'display_name', width: '18%', ellipsis: true, render: (value?: string) => value || '-' },
-    { title: '类型', dataIndex: 'type', width: '12%', ellipsis: true },
-    { title: '必填', dataIndex: 'required', width: '10%', render: (value: boolean) => value ? '是' : '否' },
-    { title: '变更', width: '12%', render: (_: unknown, property: ProposedProperty) => getPropertyActionTag(property) },
-    { title: '说明', dataIndex: 'description', width: '28%', ellipsis: true },
+    { title: '属性名', dataIndex: 'name', width: 220, render: (value: string) => renderCopyableText(value, true) },
+    { title: '显示名', dataIndex: 'display_name', width: 180, render: (value?: string) => renderCopyableText(value) },
+    { title: '类型', dataIndex: 'type', width: 110, render: (value: string) => renderCopyableText(value) },
+    { title: '必填', dataIndex: 'required', width: 70, render: (value: boolean) => value ? '是' : '否' },
+    { title: '变更', width: 90, render: (_: unknown, property: ProposedProperty) => getPropertyActionTag(property) },
+    { title: '说明', dataIndex: 'description', width: 230, render: (value?: string) => renderCopyableText(value) },
   ]
 
   return (
@@ -173,7 +188,7 @@ export default function RequirementDetailDrawer({
             <span>{displayName}</span>
             <StatusBadge status={requirement.status} type="requirement" />
           </Space>
-          <div><Text code>{technicalName}</Text></div>
+          <div>{renderCopyableText(technicalName, true)}</div>
         </div>
       )}
       open={open}
@@ -278,7 +293,7 @@ export default function RequirementDetailDrawer({
           dataSource={requirement.proposed_properties}
           pagination={false}
           tableLayout="fixed"
-          scroll={{ x: 620 }}
+          scroll={{ x: PROPERTY_TABLE_MIN_WIDTH }}
         />
       ) : (
         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="未配置属性" />
