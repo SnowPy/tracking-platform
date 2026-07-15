@@ -117,7 +117,7 @@ function readPreferences(): WorkbenchPreferences {
 interface RequirementCardListProps {
   requirements: Requirement[]
   emptyItemName: string
-  onCreate: () => void
+  onCreate?: () => void
   onOpen: (requirement: Requirement) => void
   onEdit: (requirement: Requirement) => void
   onCopy: (requirement: Requirement) => void
@@ -138,6 +138,7 @@ function RequirementCardList({
       <EmptyState
         scene="no_data"
         itemName={emptyItemName}
+        description={onCreate ? undefined : `当前暂无${emptyItemName}需求`}
         onAction={onCreate}
         actionLabel="提交需求"
       />
@@ -701,7 +702,7 @@ export default function RequirementPage() {
             <RequirementCardList
               requirements={groupedRequirements[activeStatus]}
               emptyItemName={REQUIREMENT_STATUS_LABELS[activeStatus]}
-              onCreate={openCreate}
+              onCreate={activeStatus === 'pending' ? openCreate : undefined}
               {...commonCardActions}
             />
           )}
